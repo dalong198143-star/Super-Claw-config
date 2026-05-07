@@ -1,0 +1,1245 @@
+import { useState, useEffect } from 'react'
+import './App.css'
+import config from './config'
+import INTERNAL_USERS from './config/internalUsers'
+// 导入组件
+import Header from './components/shared/Header'
+import TaskList from './components/shared/TaskList'
+import AIAssistant from './components/shared/AIAssistant'
+import ToolSelector from './components/shared/ToolSelector'
+import UserSwitcher from './components/shared/UserSwitcher'
+import CreationHistory from './components/shared/CreationHistory'
+import WorkflowSteps from './components/workflow/WorkflowSteps'
+import TextToImageTool from './components/tools/TextToImageTool'
+import ImageToVideoTool from './components/tools/ImageToVideoTool'
+import MotionTransferTool from './components/tools/MotionTransferTool'
+import OutfitTool from './components/tools/OutfitTool'
+import UpscaleTool from './components/tools/UpscaleTool'
+import VideoJoinTool from './components/tools/VideoJoinTool'
+import SubmitForm from './components/shared/SubmitForm'
+
+function App() {
+  const [tasks, setTasks] = useState([])
+  const [selectedTask, setSelectedTask] = useState(null)
+  const [user, setUser] = useState(() => {
+    // 从 localStorage 加载用户，如果没有则使用默认第一个用户
+    const saved = localStorage.getItem('currentUser')
+    return saved ? JSON.parse(saved) : INTERNAL_USERS[0]
+  })
+  const [activeTab, setActiveTab] = useState('tasks') // 'tasks' | 'history'
+  const [aiMode, setAiMode] = useState('checking')
+  const [aiResponse, setAiResponse] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [selectedModel, setSelectedModel] = useState('')
+  const [availableModels, setAvailableModels] = useState([])
+  const [imagePrompt, setImagePrompt] = useState('')
+  const [selectedStyle, setSelectedStyle] = useState('')
+  const [imageStyles, setImageStyles] = useState([])
+  const [generatedImage, setGeneratedImage] = useState(null)
+  const [imageGenerating, setImageGenerating] = useState(false)
+  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [workflowStep, setWorkflowStep] = useState(1)
+  const [selectedTool, setSelectedTool] = useState('text-to-image')
+  const [uploadedImage, setUploadedImage] = useState(null)
+  const [generatedVideo, setGeneratedVideo] = useState(null)
+  const [videoGenerating, setVideoGenerating] = useState(false)
+  const [videoResolution, setVideoResolution] = useState('1080p')
+  const [videoAspectRatio, setVideoAspectRatio] = useState('16:9')
+  const [lockOriginalRatio, setLockOriginalRatio] = useState(true)
+  const [videoFitMode, setVideoFitMode] = useState('contain')
+  const [originalImageSize, setOriginalImageSize] = useState(null)
+  const [motionSourceFile, setMotionSourceFile] = useState(null)
+  const [motionSourcePreview, setMotionSourcePreview] = useState(null)
+  const [motionTargetFile, setMotionTargetFile] = useState(null)
+  const [motionTargetPreview, setMotionTargetPreview] = useState(null)
+  const [motionGenerating, setMotionGenerating] = useState(false)
+  const [motionProgress, setMotionProgress] = useState(0)
+  const [motionMode, setMotionMode] = useState('fast')
+  const [motionWidth, setMotionWidth] = useState(512)
+  const [motionHeight, setMotionHeight] = useState(512)
+  const [motionFps, setMotionFps] = useState(30)
+  const [motionQuality, setMotionQuality] = useState('high')
+  const [generatedMotion, setGeneratedMotion] = useState(null)
+  const [outfitPersonFile, setOutfitPersonFile] = useState(null)
+  const [outfitPersonPreview, setOutfitPersonPreview] = useState(null)
+  const [outfitClothFile, setOutfitClothFile] = useState(null)
+  const [outfitClothPreview, setOutfitClothPreview] = useState(null)
+  const [outfitGenerating, setOutfitGenerating] = useState(false)
+  const [outfitProgress, setOutfitProgress] = useState(0)
+  const [outfitEdgeSmooth, setOutfitEdgeSmooth] = useState(5)
+  const [outfitBlend, setOutfitBlend] = useState(50)
+  const [generatedOutfit, setGeneratedOutfit] = useState(null)
+  const [upscaleFile, setUpscaleFile] = useState(null)
+  const [upscalePreview, setUpscalePreview] = useState(null)
+  const [upscaleGenerating, setUpscaleGenerating] = useState(false)
+  const [upscaleProgress, setUpscaleProgress] = useState(0)
+  const [upscaleMode, setUpscaleMode] = useState('denoise')
+  const [upscaleScale, setUpscaleScale] = useState(2)
+  const [upscaleStyle, setUpscaleStyle] = useState('natural')
+  const [generatedUpscale, setGeneratedUpscale] = useState(null)
+  const [videoClips, setVideoClips] = useState([])
+  const [videoJoinGenerating, setVideoJoinGenerating] = useState(false)
+  const [videoJoinProgress, setVideoJoinProgress] = useState(0)
+  const [generatedVideoJoin, setGeneratedVideoJoin] = useState(null)
+  const [useFullWorkflowMode, setUseFullWorkflowMode] = useState(false)
+  const [workflowCurrentStep, setWorkflowCurrentStep] = useState(0)
+  const [workflowSteps, setWorkflowSteps] = useState([])
+  const [workflowStepOutputs, setWorkflowStepOutputs] = useState({})
+  const [workflowCheckResults, setWorkflowCheckResults] = useState({})
+  const [workflowManualApproval, setWorkflowManualApproval] = useState({})
+
+  const textToImageSteps = [
+    { id: 'text-parsing', name: '文本解析', desc: '分析提示词，提取关键元素', autoCheck: true, manualReview: true },
+    { id: 'model-config', name: '模型选择', desc: '根据提示词特征选择合适模型', autoCheck: true, manualReview: true },
+    { id: 'param-setup', name: '参数配置', desc: '配置生成参数，实时预览', autoCheck: true, manualReview: false },
+    { id: 'image-generate', name: '图像生成', desc: '调用模型生成图像', autoCheck: true, manualReview: true },
+    { id: 'quality-eval', name: '质量评估', desc: '评估生成质量，提供优化建议', autoCheck: true, manualReview: true },
+    { id: 'result-trim', name: '结果修整', desc: '对最终结果进行优化调整', autoCheck: false, manualReview: false }
+  ]
+
+  const imageToVideoSteps = [
+    { id: 'image-analyze', name: '图像分析', desc: '分析原始图像特征与内容', autoCheck: true, manualReview: true },
+    { id: 'keyframe-extract', name: '关键帧提取', desc: '提取视频关键帧，确定初始画面', autoCheck: true, manualReview: true },
+    { id: 'motion-param', name: '运动参数设置', desc: '设置运动轨迹与过渡效果', autoCheck: true, manualReview: true },
+    { id: 'video-generate', name: '视频生成', desc: '调用模型生成完整视频', autoCheck: true, manualReview: true },
+    { id: 'frame-optimize', name: '帧序列优化', desc: '优化视频帧序列与过渡效果', autoCheck: true, manualReview: true },
+    { id: 'final-export', name: '结果导出', desc: '导出最终视频文件', autoCheck: false, manualReview: false }
+  ]
+
+  const startTextToImageWorkflow = () => {
+    setWorkflowSteps(textToImageSteps)
+    setWorkflowCurrentStep(0)
+    setWorkflowStepOutputs({})
+    setWorkflowCheckResults({})
+    setWorkflowManualApproval({})
+    setUseFullWorkflowMode(true)
+  }
+
+  const startImageToVideoWorkflow = () => {
+    setWorkflowSteps(imageToVideoSteps)
+    setWorkflowCurrentStep(0)
+    setWorkflowStepOutputs({})
+    setWorkflowCheckResults({})
+    setWorkflowManualApproval({})
+    setUseFullWorkflowMode(true)
+  }
+
+  const runWorkflowStepCheck = (stepId) => {
+    const checkResult = {
+      passed: Math.random() > 0.2,
+      checks: [
+        { name: '格式检查', passed: true, desc: '格式符合要求' },
+        { name: '完整性检查', passed: true, desc: '内容完整无缺失' },
+        { name: '质量检查', passed: Math.random() > 0.3, desc: '质量符合标准' }
+      ],
+      suggestions: ['可以继续下一步']
+    }
+    setWorkflowCheckResults(prev => ({ ...prev, [stepId]: checkResult }))
+  }
+
+  const approveWorkflowStep = (stepId, approved) => {
+    setWorkflowManualApproval(prev => ({ ...prev, [stepId]: approved }))
+  }
+
+  const goToNextWorkflowStep = () => {
+    if (workflowCurrentStep < workflowSteps.length - 1) {
+      setWorkflowCurrentStep(prev => prev + 1)
+    }
+  }
+
+  const goToPreviousWorkflowStep = () => {
+    if (workflowCurrentStep > 0) {
+      setWorkflowCurrentStep(prev => prev - 1)
+    }
+  }
+
+  const resetWorkflow = () => {
+    setWorkflowSteps([])
+    setWorkflowCurrentStep(0)
+    setWorkflowStepOutputs({})
+    setWorkflowCheckResults({})
+    setWorkflowManualApproval({})
+    setUseFullWorkflowMode(false)
+  }
+
+  const validateWorkflow = () => {
+    let validationResults = []
+    if (workflowSteps.length === 0) {
+      validationResults.push({ type: 'error', icon: '❌', message: '未加载工作流步骤' })
+    }
+    for (let i = 0; i < workflowSteps.length; i++) {
+      const step = workflowSteps[i]
+      const checkPassed = !step.autoCheck || workflowCheckResults[step.id]?.passed
+      const approvalPassed = !step.manualReview || workflowManualApproval[step.id] === true
+      if (i <= workflowCurrentStep) {
+        if (step.autoCheck && !workflowCheckResults[step.id]) {
+          validationResults.push({ type: 'warning', icon: '⚠️', message: `步骤${i+1} (${step.name}) 未运行自动检查` })
+        }
+        if (step.manualReview && workflowManualApproval[step.id] === undefined) {
+          validationResults.push({ type: 'warning', icon: '⚠️', message: `步骤${i+1} (${step.name}) 等待人工审核` })
+        }
+      }
+    }
+    if (validationResults.length === 0) {
+      validationResults.push({ type: 'success', icon: '✅', message: '工作流完整性检查通过！' })
+    }
+    return validationResults
+  }
+
+  useEffect(() => {
+    fetchTasks()
+    fetchUser()
+    checkOllama()
+    fetchImageStyles()
+  }, [])
+
+  const fetchImageStyles = async () => {
+    const res = await fetch(`${config.API_BASE_URL}/api/image-styles`)
+    const styles = await res.json()
+    setImageStyles(styles)
+    if (styles.length > 0) {
+      setSelectedStyle(styles[0].id)
+    }
+  }
+
+  const generateImage = async () => {
+    if (!imagePrompt.trim()) return
+    setImageGenerating(true)
+    const res = await fetch(`${config.API_BASE_URL}/api/image-generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt: imagePrompt,
+        style: selectedStyle,
+        width: 512,
+        height: 512
+      })
+    })
+    const data = await res.json()
+    setGeneratedImage(data)
+    setImageGenerating(false)
+    
+    // 添加到创作历史
+    addToHistory({
+      tool: selectedTool,
+      resultType: 'image',
+      resultUrl: data.url || data.image,
+      prompt: imagePrompt,
+      style: selectedStyle
+    })
+  }
+
+  const fetchTasks = async (search = '', difficulty = 'all', sort = 'difficulty_asc') => {
+    const params = new URLSearchParams()
+    if (search) params.append('search', search)
+    if (difficulty !== 'all') params.append('difficulty', difficulty)
+    params.append('sort', sort)
+    const res = await fetch(`${config.API_BASE_URL}/api/tasks?${params}`)
+    setTasks(await res.json())
+  }
+
+  const fetchUser = async () => {
+    // 内部使用模式：直接使用当前选中的用户信息，不从服务器获取
+    // 如果需要从服务器同步余额等信息，可以保留原有逻辑
+    setUser(user)
+  }
+
+  const handleUserChange = (newUser) => {
+    setUser(newUser)
+    // 切换用户后刷新任务列表
+    fetchTasks()
+  }
+
+  const checkOllama = async () => {
+    try {
+      const res = await fetch(`${config.API_BASE_URL}/api/ollama/tags`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.models && data.models.length > 0) {
+          setAvailableModels(data.models.map(m => m.name))
+          setSelectedModel(data.models[0].name)
+          setAiMode('local')
+        } else {
+          setAiMode('cloud')
+        }
+      } else {
+        setAiMode('cloud')
+      }
+    } catch (e) {
+      setAiMode('cloud')
+    }
+  }
+
+  const callOllama = async (prompt) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`${config.API_BASE_URL}/api/ollama/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: selectedModel || 'qwen2.5-coder:1.5b',
+          prompt: prompt,
+          stream: false
+        })
+      })
+      const data = await res.json()
+      setAiResponse(data.response)
+    } catch (e) {
+      setAiResponse('AI 提示：这个任务您可以这样做...（需要本地安装Ollama）')
+    }
+    setLoading(false)
+  }
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      alert('已复制到剪贴板！')
+    } catch (e) {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      alert('已复制到剪贴板！')
+    }
+  }
+
+  const fillToImagePrompt = (text) => {
+    setImagePrompt(text)
+    const imageGenerator = document.querySelector('.image-generator')
+    if (imageGenerator) {
+      imageGenerator.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
+  const optimizeAndFillPrompt = (text) => {
+    const optimizedPrompt = extractAndOptimizePrompt(text)
+    setImagePrompt(optimizedPrompt)
+    const imageGenerator = document.querySelector('.image-generator')
+    if (imageGenerator) {
+      imageGenerator.scrollIntoView({ behavior: 'smooth' })
+    }
+  }
+
+  const extractAndOptimizePrompt = (text) => {
+    const patterns = [
+      /```([\s\S]*?)```/g,
+      /`([^`]+)`/g,
+      /(?:Photorealistic|Impressionist|Anime|Concept art|Digital painting)[\s\S]*?(?=\n\n|$)/gi,
+      /(?:A beautiful|An epic|A serene|A magical|A dramatic)[\s\S]*?(?=\n\n|$)/gi,
+      /(?:A [^,\n]+, [^,\n]+, [^,\n]+)/gi
+    ]
+
+    for (let pattern of patterns) {
+      const matches = text.match(pattern)
+      if (matches && matches.length > 0) {
+        let bestMatch = matches[0].replace(/^```|```$/g, '').trim()
+        if (bestMatch.length > 20 && bestMatch.length < 1000) {
+          return enhancePrompt(bestMatch)
+        }
+      }
+    }
+
+    const sentences = text.split(/[.!?。！？]+/)
+    for (let sentence of sentences) {
+      const keywords = ['风景', '画', '风景', 'landscape', 'painting', 'image', 'scene', 'sunset', 'forest', 'mountain', 'ocean', 'beach', 'city', 'sky']
+      const hasKeyword = keywords.some(k => sentence.toLowerCase().includes(k))
+      if (hasKeyword && sentence.length > 30 && sentence.length < 500) {
+        return enhancePrompt(sentence.trim())
+      }
+    }
+
+    return enhancePrompt(text)
+  }
+
+  const enhancePrompt = (prompt) => {
+    let enhanced = prompt
+    const commonEnhancements = [
+      { test: /8K|UHD|ultra-detailed/i, add: '' },
+      { test: /style of/i, add: '' },
+      { test: /highly detailed|ultra detailed/i, add: '' },
+      { test: /cinematic|epic|dramatic/i, add: '' }
+    ]
+
+    let needsEnhancements = true
+    for (let e of commonEnhancements) {
+      if (e.test.test(enhanced)) {
+        needsEnhancements = false
+        break
+      }
+    }
+
+    if (needsEnhancements) {
+      const enhancements = [
+        'highly detailed',
+        '8K UHD',
+        'cinematic lighting',
+        'epic scale'
+      ]
+      
+      const randomEnhancements = []
+      for (let i = 0; i < 2; i++) {
+        const idx = Math.floor(Math.random() * enhancements.length)
+        randomEnhancements.push(enhancements[idx])
+      }
+      
+      enhanced += ', ' + randomEnhancements.join(', ')
+    }
+
+    if (!/--ar/.test(enhanced)) {
+      enhanced += ' --ar 16:9'
+    }
+
+    return enhanced.trim()
+  }
+
+  const saveImage = (imageUrl) => {
+    const link = document.createElement('a')
+    link.href = imageUrl
+    link.download = `generated-image-${Date.now()}.jpg`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    alert(`🖼️ 图片已保存！\n\n📁 默认保存位置：\n• Windows: 此电脑 → 下载\n• Mac: 访达 → 下载\n• 手机: 文件 → 下载\n\n文件名: generated-image-${Date.now()}.jpg`)
+  }
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+      if (!validTypes.includes(file.type)) {
+        alert('请上传 JPG、PNG、GIF 或 WebP 图片！')
+        return
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        alert('文件大小不能超过 20MB！')
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setUploadedImage(event.target.result)
+        const img = new Image()
+        img.onload = () => {
+          setOriginalImageSize({
+            width: img.width,
+            height: img.height,
+            ratio: (img.width / img.height).toFixed(2)
+          })
+        }
+        img.src = event.target.result
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleMotionSourceUpload = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const validTypes = ['image/jpeg', 'image/png', 'video/mp4']
+      if (!validTypes.includes(file.type)) {
+        alert('请上传 JPG、PNG 图片或 MP4 视频文件！')
+        return
+      }
+      if (file.size > 50 * 1024 * 1024) {
+        alert('文件大小不能超过 50MB！')
+        return
+      }
+      setMotionSourceFile(file)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setMotionSourcePreview(event.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleMotionTargetUpload = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const validTypes = ['image/jpeg', 'image/png']
+      if (!validTypes.includes(file.type)) {
+        alert('请上传 JPG 或 PNG 图片！')
+        return
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        alert('文件大小不能超过 20MB！')
+        return
+      }
+      setMotionTargetFile(file)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setMotionTargetPreview(event.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const generateMotion = async () => {
+    if (!motionSourceFile && !motionTargetFile) return
+    setMotionGenerating(true)
+    setMotionProgress(0)
+    const totalSteps = 100
+    for (let i = 0; i <= totalSteps; i++) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      setMotionProgress(Math.min(i, 100))
+    }
+    setGeneratedMotion({
+      url: config.DEFAULT_VIDEO_URL,
+      sourceFile: motionSourceFile?.name || 'demo.mp4',
+      targetFile: motionTargetFile?.name || 'demo.png',
+      mode: motionMode,
+      settings: {
+        width: motionWidth,
+        height: motionHeight,
+        fps: motionFps,
+        quality: motionQuality
+      }
+    })
+    setMotionGenerating(false)
+    
+    // 添加到创作历史
+    addToHistory({
+      tool: selectedTool,
+      resultType: 'video',
+      resultUrl: config.DEFAULT_VIDEO_URL,
+      prompt: `动作迁移 - ${motionSourceFile?.name || ''} + ${motionTargetFile?.name || ''}`,
+      settings: { mode: motionMode, width: motionWidth, height: motionHeight, fps: motionFps, quality: motionQuality }
+    })
+  }
+
+  const saveMotion = (videoUrl) => {
+    const link = document.createElement('a')
+    link.href = videoUrl
+    link.download = `motion-result-${Date.now()}.mp4`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    alert(`🎬 动作迁移结果已保存！\n\n📁 默认保存位置：\n• Windows: 此电脑 → 下载\n• Mac: 访达 → 下载\n• 手机: 文件 → 下载\n\n文件名: motion-result-${Date.now()}.mp4`)
+  }
+
+  const resetMotionWorkflow = () => {
+    setMotionSourceFile(null)
+    setMotionSourcePreview(null)
+    setMotionTargetFile(null)
+    setMotionTargetPreview(null)
+    setMotionGenerating(false)
+    setMotionProgress(0)
+    setGeneratedMotion(null)
+  }
+
+  const handleOutfitPersonUpload = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const validTypes = ['image/jpeg', 'image/png']
+      if (!validTypes.includes(file.type)) {
+        alert('请上传 JPG 或 PNG 图片！')
+        return
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        alert('文件大小不能超过 20MB！')
+        return
+      }
+      setOutfitPersonFile(file)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setOutfitPersonPreview(event.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleOutfitClothUpload = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const validTypes = ['image/jpeg', 'image/png']
+      if (!validTypes.includes(file.type)) {
+        alert('请上传 JPG 或 PNG 图片！')
+        return
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        alert('文件大小不能超过 20MB！')
+        return
+      }
+      setOutfitClothFile(file)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setOutfitClothPreview(event.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const generateOutfit = async () => {
+    if (!outfitPersonFile && !outfitClothFile) return
+    setOutfitGenerating(true)
+    setOutfitProgress(0)
+    const totalSteps = 100
+    for (let i = 0; i <= totalSteps; i++) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      setOutfitProgress(Math.min(i, 100))
+    }
+    setGeneratedOutfit({
+      url: config.DEFAULT_VIDEO_URL.replace('.mp4', '.jpg'),
+      personFile: outfitPersonFile?.name || 'person.jpg',
+      clothFile: outfitClothFile?.name || 'cloth.png',
+      settings: {
+        edgeSmooth: outfitEdgeSmooth,
+        blend: outfitBlend
+      }
+    })
+    setOutfitGenerating(false)
+    
+    // 添加到创作历史
+    addToHistory({
+      tool: selectedTool,
+      resultType: 'image',
+      resultUrl: config.DEFAULT_VIDEO_URL.replace('.mp4', '.jpg'),
+      prompt: `换装 - ${outfitPersonFile?.name || ''} + ${outfitClothFile?.name || ''}`,
+      settings: { edgeSmooth: outfitEdgeSmooth, blend: outfitBlend }
+    })
+  }
+
+  const saveOutfit = (imageUrl) => {
+    const link = document.createElement('a')
+    link.href = imageUrl
+    link.download = `outfit-result-${Date.now()}.jpg`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    alert(`👗 换装结果已保存！\n\n📁 默认保存位置：\n• Windows: 此电脑 → 下载\n• Mac: 访达 → 下载\n• 手机: 文件 → 下载\n\n文件名: outfit-result-${Date.now()}.jpg`)
+  }
+
+  const resetOutfitWorkflow = () => {
+    setOutfitPersonFile(null)
+    setOutfitPersonPreview(null)
+    setOutfitClothFile(null)
+    setOutfitClothPreview(null)
+    setOutfitGenerating(false)
+    setOutfitProgress(0)
+    setGeneratedOutfit(null)
+  }
+
+  const handleUpscaleUpload = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const validTypes = ['image/jpeg', 'image/png']
+      if (!validTypes.includes(file.type)) {
+        alert('请上传 JPG 或 PNG 图片！')
+        return
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        alert('文件大小不能超过 20MB！')
+        return
+      }
+      setUpscaleFile(file)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        setUpscalePreview(event.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const generateUpscale = async () => {
+    if (!upscaleFile) return
+    setUpscaleGenerating(true)
+    setUpscaleProgress(0)
+    const totalSteps = 100
+    for (let i = 0; i <= totalSteps; i++) {
+      await new Promise(resolve => setTimeout(resolve, 40))
+      setUpscaleProgress(Math.min(i, 100))
+    }
+    setGeneratedUpscale({
+      url: config.DEFAULT_VIDEO_URL.replace('.mp4', '.jpg'),
+      originalFile: upscaleFile?.name || 'original.jpg',
+      mode: upscaleMode,
+      scale: upscaleScale,
+      style: upscaleStyle
+    })
+    setUpscaleGenerating(false)
+    
+    // 添加到创作历史
+    addToHistory({
+      tool: selectedTool,
+      resultType: 'image',
+      resultUrl: config.DEFAULT_VIDEO_URL.replace('.mp4', '.jpg'),
+      prompt: `重绘洗图 - ${upscaleFile?.name || ''}`,
+      settings: { mode: upscaleMode, scale: upscaleScale, style: upscaleStyle }
+    })
+  }
+
+  const saveUpscale = (imageUrl) => {
+    const link = document.createElement('a')
+    link.href = imageUrl
+    link.download = `upscale-result-${Date.now()}.jpg`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    alert(`🖼️ 重绘结果已保存！\n\n📁 默认保存位置：\n• Windows: 此电脑 → 下载\n• Mac: 访达 → 下载\n• 手机: 文件 → 下载\n\n文件名: upscale-result-${Date.now()}.jpg`)
+  }
+
+  const resetUpscaleWorkflow = () => {
+    setUpscaleFile(null)
+    setUpscalePreview(null)
+    setUpscaleGenerating(false)
+    setUpscaleProgress(0)
+    setGeneratedUpscale(null)
+  }
+
+  const handleVideoClipUpload = (e) => {
+    const files = Array.from(e.target.files)
+    if (files.length === 0) return
+    const validTypes = ['video/mp4', 'video/webm', 'video/quicktime']
+    files.forEach(file => {
+      if (!validTypes.includes(file.type)) {
+        alert(`${file.name} 格式不支持，请上传 MP4、WebM 或 MOV 格式！`)
+        return
+      }
+      if (file.size > 100 * 1024 * 1024) {
+        alert(`${file.name} 文件太大，请上传小于 100MB 的视频！`)
+        return
+      }
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const newClip = {
+          id: Date.now() + Math.random(),
+          file: file,
+          name: file.name,
+          url: event.target.result,
+          size: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
+          duration: null
+        }
+        setVideoClips(prev => [...prev, newClip])
+      }
+      reader.readAsDataURL(file)
+    })
+  }
+
+  const removeVideoClip = (clipId) => {
+    setVideoClips(prev => prev.filter(clip => clip.id !== clipId))
+  }
+
+  const moveVideoClip = (clipId, direction) => {
+    setVideoClips(prev => {
+      const index = prev.findIndex(clip => clip.id === clipId)
+      if (index === -1) return prev
+      const newIndex = direction === 'up' ? index - 1 : index + 1
+      if (newIndex < 0 || newIndex >= prev.length) return prev
+      const newClips = [...prev]
+      ;[newClips[index], newClips[newIndex]] = [newClips[newIndex], newClips[index]]
+      return newClips
+    })
+  }
+
+  const generateVideoJoin = async () => {
+    if (videoClips.length < 2) {
+      alert('请至少上传2个视频片段进行拼接！')
+      return
+    }
+    setVideoJoinGenerating(true)
+    setVideoJoinProgress(0)
+    const totalSteps = 100
+    for (let i = 0; i <= totalSteps; i++) {
+      await new Promise(resolve => setTimeout(resolve, 50))
+      setVideoJoinProgress(Math.min(i, 100))
+    }
+    setGeneratedVideoJoin({
+      url: config.DEFAULT_VIDEO_URL,
+      clipCount: videoClips.length,
+      clips: videoClips.map(c => c.name)
+    })
+    setVideoJoinGenerating(false)
+    
+    // 添加到创作历史
+    addToHistory({
+      tool: selectedTool,
+      resultType: 'video',
+      resultUrl: config.DEFAULT_VIDEO_URL,
+      prompt: `视频拼接 - ${videoClips.length}个片段`,
+      settings: { clipCount: videoClips.length, clips: videoClips.map(c => c.name) }
+    })
+  }
+
+  const saveVideoJoin = () => {
+    const link = document.createElement('a')
+    link.href = generatedVideoJoin.url
+    link.download = `joined-video-${Date.now()}.mp4`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    alert(`🎬 拼接视频已保存！\n\n📁 默认保存位置：\n• Windows: 此电脑 → 下载\n• Mac: 访达 → 下载\n• 手机: 文件 → 下载\n\n文件名: joined-video-${Date.now()}.mp4`)
+  }
+
+  const resetVideoJoinWorkflow = () => {
+    setVideoClips([])
+    setVideoJoinGenerating(false)
+    setVideoJoinProgress(0)
+    setGeneratedVideoJoin(null)
+  }
+
+  const generateVideo = async () => {
+    if (!uploadedImage && !imagePrompt) return
+    setVideoGenerating(true)
+    await new Promise(resolve => setTimeout(resolve, 3000))
+    setGeneratedVideo({
+      url: config.DEFAULT_VIDEO_URL,
+      prompt: imagePrompt,
+      status: 'completed'
+    })
+    setVideoGenerating(false)
+    
+    // 添加到创作历史
+    addToHistory({
+      tool: selectedTool,
+      resultType: 'video',
+      resultUrl: config.DEFAULT_VIDEO_URL,
+      prompt: imagePrompt,
+      settings: { resolution: videoResolution, aspectRatio: videoAspectRatio }
+    })
+  }
+
+  const saveVideo = (videoUrl) => {
+    const link = document.createElement('a')
+    link.href = videoUrl
+    link.download = `generated-video-${Date.now()}.mp4`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    alert(`🎬 视频已保存！\n\n📁 默认保存位置：\n• Windows: 此电脑 → 下载\n• Mac: 访达 → 下载\n• 手机: 文件 → 下载\n\n文件名: generated-video-${Date.now()}.mp4`)
+  }
+
+  const nextStep = () => {
+    if (workflowStep < 3) {
+      setWorkflowStep(workflowStep + 1)
+    }
+  }
+
+  const prevStep = () => {
+    if (workflowStep > 1) {
+      setWorkflowStep(workflowStep - 1)
+    }
+  }
+
+  const fillToSubmit = (imageData) => {
+    const submitForm = document.querySelector('.submit-form')
+    const textarea = submitForm?.querySelector('textarea[name="content"]')
+    if (textarea) {
+      textarea.value = `已使用AI成功生成图像：\n提示词: ${imageData.prompt}\n风格: ${imageStyles.find(s => s.id === imageData.style)?.name}\n图片URL: ${imageData.url}`
+    }
+    submitForm?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    const formData = new FormData(e.target)
+    formData.append('task_id', selectedTask.id)
+    formData.append('user_id', 1)
+
+    const res = await fetch(`${config.API_BASE_URL}/api/submit`, {
+      method: 'POST',
+      body: formData
+    })
+
+    const data = await res.json()
+    if (data.success) {
+      setSubmitSuccess(true)
+      setTimeout(() => {
+        fetchTasks()
+        fetchUser()
+        setSelectedTask(null)
+        setSubmitSuccess(false)
+      }, 2000)
+    }
+  }
+
+  const renderStep1Content = () => {
+    switch (selectedTool) {
+      case 'text-to-image':
+        return (
+          <TextToImageTool
+            imageStyles={imageStyles}
+            selectedStyle={selectedStyle}
+            onStyleChange={setSelectedStyle}
+            imagePrompt={imagePrompt}
+            onPromptChange={setImagePrompt}
+            onNextStep={nextStep}
+          />
+        )
+      case 'image-to-video':
+        return (
+          <ImageToVideoTool
+            uploadedImage={uploadedImage}
+            originalImageSize={originalImageSize}
+            lockOriginalRatio={lockOriginalRatio}
+            onLockRatioChange={setLockOriginalRatio}
+            videoFitMode={videoFitMode}
+            onFitModeChange={setVideoFitMode}
+            videoResolution={videoResolution}
+            onResolutionChange={setVideoResolution}
+            videoAspectRatio={videoAspectRatio}
+            onAspectRatioChange={setVideoAspectRatio}
+            onImageUpload={handleImageUpload}
+            onRemoveImage={() => { setUploadedImage(null); setOriginalImageSize(null) }}
+            onNextStep={nextStep}
+          />
+        )
+      case 'motion-transfer':
+        return (
+          <MotionTransferTool
+            motionSourceFile={motionSourceFile}
+            motionSourcePreview={motionSourcePreview}
+            motionTargetFile={motionTargetFile}
+            motionTargetPreview={motionTargetPreview}
+            motionMode={motionMode}
+            onMotionModeChange={setMotionMode}
+            motionWidth={motionWidth}
+            onWidthChange={setMotionWidth}
+            motionHeight={motionHeight}
+            onHeightChange={setMotionHeight}
+            motionFps={motionFps}
+            onFpsChange={setMotionFps}
+            motionQuality={motionQuality}
+            onQualityChange={setMotionQuality}
+            onSourceUpload={handleMotionSourceUpload}
+            onTargetUpload={handleMotionTargetUpload}
+            onRemoveSource={() => { setMotionSourceFile(null); setMotionSourcePreview(null) }}
+            onRemoveTarget={() => { setMotionTargetFile(null); setMotionTargetPreview(null) }}
+            onNextStep={nextStep}
+          />
+        )
+      case 'outfit':
+        return (
+          <OutfitTool
+            outfitPersonFile={outfitPersonFile}
+            outfitPersonPreview={outfitPersonPreview}
+            outfitClothFile={outfitClothFile}
+            outfitClothPreview={outfitClothPreview}
+            outfitEdgeSmooth={outfitEdgeSmooth}
+            onEdgeSmoothChange={setOutfitEdgeSmooth}
+            outfitBlend={outfitBlend}
+            onBlendChange={setOutfitBlend}
+            onPersonUpload={handleOutfitPersonUpload}
+            onClothUpload={handleOutfitClothUpload}
+            onRemovePerson={() => { setOutfitPersonFile(null); setOutfitPersonPreview(null) }}
+            onRemoveCloth={() => { setOutfitClothFile(null); setOutfitClothPreview(null) }}
+            onNextStep={nextStep}
+          />
+        )
+      case 'upscale':
+        return (
+          <UpscaleTool
+            upscaleFile={upscaleFile}
+            upscalePreview={upscalePreview}
+            upscaleMode={upscaleMode}
+            onModeChange={setUpscaleMode}
+            upscaleScale={upscaleScale}
+            onScaleChange={setUpscaleScale}
+            upscaleStyle={upscaleStyle}
+            onStyleChange={setUpscaleStyle}
+            onImageUpload={handleUpscaleUpload}
+            onRemoveImage={() => { setUpscaleFile(null); setUpscalePreview(null) }}
+            onNextStep={nextStep}
+          />
+        )
+      case 'video-join':
+        return (
+          <VideoJoinTool
+            videoClips={videoClips}
+            onVideoUpload={handleVideoClipUpload}
+            onRemoveClip={removeVideoClip}
+            onMoveClip={moveVideoClip}
+            onNextStep={nextStep}
+          />
+        )
+      default:
+        return (
+          <TextToImageTool
+            imageStyles={imageStyles}
+            selectedStyle={selectedStyle}
+            onStyleChange={setSelectedStyle}
+            imagePrompt={imagePrompt}
+            onPromptChange={setImagePrompt}
+            onNextStep={nextStep}
+          />
+        )
+    }
+  }
+
+  const renderStep2Content = () => (
+    <div className="workflow-content">
+      <div className="step-indicator">
+        <span className="current-step">步骤2/3</span>
+        <span className="step-title">选择工具</span>
+      </div>
+      <ToolSelector selectedTool={selectedTool} onSelectTool={setSelectedTool} />
+      <div className="step-actions">
+        <button className="prev-btn" onClick={prevStep}>← 返回步骤1</button>
+        <button className="next-btn" onClick={nextStep}>进入步骤3 →</button>
+      </div>
+    </div>
+  )
+
+  const renderStep3Content = () => {
+    const handleGenerate = () => {
+      switch (selectedTool) {
+        case 'text-to-image':
+          generateImage()
+          break
+        case 'image-to-video':
+          generateVideo()
+          break
+        case 'motion-transfer':
+          generateMotion()
+          break
+        case 'outfit':
+          generateOutfit()
+          break
+        case 'upscale':
+          generateUpscale()
+          break
+        case 'video-join':
+          generateVideoJoin()
+          break
+        default:
+          generateImage()
+      }
+    }
+
+    const renderResult = () => {
+      switch (selectedTool) {
+        case 'text-to-image':
+          return generatedImage && (
+            <div className="result-section">
+              <h4>生成结果</h4>
+              <img src={generatedImage.url} alt="Generated" className="generated-image" />
+              <div className="result-actions">
+                <button onClick={() => saveImage(generatedImage.url)}>💾 保存图片</button>
+                <button onClick={() => fillToSubmit(generatedImage)}>📝 填充到提交</button>
+              </div>
+            </div>
+          )
+        case 'image-to-video':
+          return generatedVideo && (
+            <div className="result-section">
+              <h4>生成结果</h4>
+              <video src={generatedVideo.url} controls className="generated-video" />
+              <div className="result-actions">
+                <button onClick={() => saveVideo(generatedVideo.url)}>💾 保存视频</button>
+              </div>
+            </div>
+          )
+        case 'motion-transfer':
+          return generatedMotion && (
+            <div className="result-section">
+              <h4>生成结果</h4>
+              <video src={generatedMotion.url} controls className="generated-video" />
+              <div className="result-actions">
+                <button onClick={() => saveMotion(generatedMotion.url)}>💾 保存视频</button>
+              </div>
+            </div>
+          )
+        case 'outfit':
+          return generatedOutfit && (
+            <div className="result-section">
+              <h4>生成结果</h4>
+              <img src={generatedOutfit.url} alt="Generated" className="generated-image" />
+              <div className="result-actions">
+                <button onClick={() => saveOutfit(generatedOutfit.url)}>💾 保存图片</button>
+              </div>
+            </div>
+          )
+        case 'upscale':
+          return generatedUpscale && (
+            <div className="result-section">
+              <h4>生成结果</h4>
+              <img src={generatedUpscale.url} alt="Generated" className="generated-image" />
+              <div className="result-actions">
+                <button onClick={() => saveUpscale(generatedUpscale.url)}>💾 保存图片</button>
+              </div>
+            </div>
+          )
+        case 'video-join':
+          return generatedVideoJoin && (
+            <div className="result-section">
+              <h4>生成结果</h4>
+              <video src={generatedVideoJoin.url} controls className="generated-video" />
+              <div className="result-actions">
+                <button onClick={saveVideoJoin}>💾 保存视频</button>
+              </div>
+            </div>
+          )
+        default:
+          return null
+      }
+    }
+
+    const isGenerating = imageGenerating || videoGenerating || motionGenerating || outfitGenerating || upscaleGenerating || videoJoinGenerating
+    const progress = motionProgress || outfitProgress || upscaleProgress || videoJoinProgress
+
+    return (
+      <div className="workflow-content">
+        <div className="step-indicator">
+          <span className="current-step">步骤3/3</span>
+          <span className="step-title">生成</span>
+        </div>
+        <div className="generate-section">
+          <button 
+            className="generate-btn" 
+            onClick={handleGenerate}
+            disabled={isGenerating}
+          >
+            {isGenerating ? (
+              <span>⏳ 生成中... {progress}%</span>
+            ) : (
+              <span>🚀 开始生成</span>
+            )}
+          </button>
+          {isGenerating && (
+            <div className="progress-bar">
+              <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+            </div>
+          )}
+          {renderResult()}
+        </div>
+        <div className="step-actions">
+          <button className="prev-btn" onClick={prevStep}>← 返回步骤2</button>
+          <button className="reset-btn" onClick={() => setWorkflowStep(1)}>🔄 重新开始</button>
+        </div>
+      </div>
+    )
+  }
+
+  // 添加创作到历史记录
+  const addToHistory = (creation) => {
+    if (!user) return
+    
+    const historyKey = `creation_history_${user.id}`
+    const saved = localStorage.getItem(historyKey)
+    const history = saved ? JSON.parse(saved) : []
+    
+    const newRecord = {
+      id: Date.now(),
+      ...creation,
+      timestamp: new Date().toISOString(),
+      userId: user.id
+    }
+    
+    const updated = [newRecord, ...history].slice(0, 50) // 最多保留50条
+    localStorage.setItem(historyKey, JSON.stringify(updated))
+  }
+
+  return (
+    <div className="app">
+      <Header user={user} aiMode={aiMode} onUserChange={handleUserChange} />
+
+      {!selectedTask ? (
+        <>
+          {/* Tab 切换 */}
+          <div className="tabs">
+            <button 
+              className={`tab ${activeTab === 'tasks' ? 'active' : ''}`}
+              onClick={() => setActiveTab('tasks')}
+            >
+              📋 任务列表
+            </button>
+            <button 
+              className={`tab ${activeTab === 'history' ? 'active' : ''}`}
+              onClick={() => setActiveTab('history')}
+            >
+              📚 创作历史
+            </button>
+          </div>
+
+          {activeTab === 'tasks' ? (
+            <TaskList 
+              tasks={tasks} 
+              onSelectTask={setSelectedTask} 
+              onSearch={fetchTasks}
+            />
+          ) : (
+            <CreationHistory 
+              userId={user?.id}
+              onLoadCreation={(item) => {
+                // 根据历史记录重新加载创作
+                console.log('重新加载创作:', item)
+                
+                // 切换到对应的工具
+                setSelectedTool(item.tool)
+                
+                // 根据工具类型填充相应的数据
+                if (item.tool === 'text-to-image') {
+                  setImagePrompt(item.prompt || '')
+                  if (item.style) setSelectedStyle(item.style)
+                } else if (item.tool === 'image-to-video') {
+                  if (item.prompt) setImagePrompt(item.prompt)
+                  if (item.settings?.resolution) setVideoResolution(item.settings.resolution)
+                  if (item.settings?.aspectRatio) setVideoAspectRatio(item.settings.aspectRatio)
+                } else if (item.tool === 'motion-transfer') {
+                  if (item.settings) {
+                    setMotionMode(item.settings.mode || 'fast')
+                    setMotionWidth(item.settings.width || 512)
+                    setMotionHeight(item.settings.height || 512)
+                    setMotionFps(item.settings.fps || 30)
+                    setMotionQuality(item.settings.quality || 'high')
+                  }
+                } else if (item.tool === 'outfit') {
+                  if (item.settings) {
+                    setOutfitEdgeSmooth(item.settings.edgeSmooth || 5)
+                    setOutfitBlend(item.settings.blend || 50)
+                  }
+                } else if (item.tool === 'upscale') {
+                  if (item.settings) {
+                    setUpscaleMode(item.settings.mode || 'denoise')
+                    setUpscaleScale(item.settings.scale || 2)
+                    setUpscaleStyle(item.settings.style || 'natural')
+                  }
+                }
+                
+                // 提示用户
+                alert(`✅ 已加载历史创作记录\n\n工具: ${item.tool}\n时间: ${new Date(item.timestamp).toLocaleString()}`)
+              }}
+            />
+          )}
+        </>
+      ) : (
+        <div className="task-detail">
+          <button className="back-btn" onClick={() => setSelectedTask(null)}>← 返回</button>
+          <div className="task-info">
+            <div className="task-header">
+              <span className="difficulty">{selectedTask.difficulty}星</span>
+              <span className="reward">{selectedTask.reward}元</span>
+            </div>
+            <h2>{selectedTask.title}</h2>
+            <p>{selectedTask.description}</p>
+          </div>
+
+          <AIAssistant
+            availableModels={availableModels}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+            aiResponse={aiResponse}
+            loading={loading}
+            onAskAI={callOllama}
+            onCopyResponse={copyToClipboard}
+            onOptimizePrompt={optimizeAndFillPrompt}
+            onFillPrompt={fillToImagePrompt}
+          />
+
+          <div className="workflow-container">
+            <h3>🎨 AI创作工作台</h3>
+            <WorkflowSteps workflowStep={workflowStep} onStepChange={setWorkflowStep} />
+            
+            {workflowStep === 1 && renderStep1Content()}
+            {workflowStep === 2 && renderStep2Content()}
+            {workflowStep === 3 && renderStep3Content()}
+          </div>
+
+          <SubmitForm task={selectedTask} onSubmit={handleSubmit} submitSuccess={submitSuccess} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default App

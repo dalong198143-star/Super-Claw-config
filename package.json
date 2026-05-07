@@ -1,0 +1,20 @@
+{
+  "name": "mvp-learning-to-earn",
+  "version": "1.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node server/index.js",
+    "dev:client": "cd client && npm run dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "MVP for learning to earn platform",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "^2.1.132"
+  }
+}

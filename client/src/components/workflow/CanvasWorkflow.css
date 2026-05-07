@@ -1,0 +1,289 @@
+.canvas-workflow {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.canvas-toolbar {
+  padding: 1.5rem;
+  background: linear-gradient(135deg, #9f7aea 0%, #6b46c1 100%);
+  color: white;
+}
+
+.canvas-toolbar h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1.1rem;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.btn-connection-mode {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.btn-connection-mode:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.btn-connection-mode.active {
+  background: rgba(255, 255, 255, 0.4);
+  border-color: white;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+.node-palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+}
+
+.palette-node {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  padding: 0.8rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  color: white;
+}
+
+.palette-node:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.palette-node .node-icon {
+  font-size: 1.5rem;
+}
+
+.palette-node .node-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.btn-clear-canvas {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  color: white;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.9rem;
+}
+
+.btn-clear-canvas:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.canvas-area {
+  position: relative;
+  min-height: 500px;
+  background: #f8f9fa;
+  background-image: 
+    radial-gradient(circle, #e0e0e0 1px, transparent 1px);
+  background-size: 20px 20px;
+  overflow: auto;
+}
+
+.empty-canvas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 500px;
+  color: #999;
+  text-align: center;
+}
+
+.empty-canvas p {
+  margin: 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.empty-canvas .hint {
+  font-size: 0.9rem;
+  color: #bbb;
+}
+
+.canvas-node {
+  position: absolute;
+  background: white;
+  border: 3px solid var(--node-color, #667eea);
+  border-radius: 10px;
+  padding: 0.8rem;
+  min-width: 100px;
+  cursor: move;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+  user-select: none;
+}
+
+.canvas-node:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.canvas-node:active {
+  cursor: grabbing;
+}
+
+.canvas-node.connecting {
+  border-color: #48bb78;
+  box-shadow: 0 0 20px rgba(72, 187, 120, 0.5);
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(72, 187, 120, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(72, 187, 120, 0.8);
+  }
+}
+
+.node-connect-indicator {
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  background: #48bb78;
+  color: white;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  text-align: center;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.node-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.node-header .node-icon {
+  font-size: 1.3rem;
+}
+
+.node-header .node-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #333;
+}
+
+.node-remove {
+  background: #ff4757;
+  color: white;
+  border: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 1.2rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s ease;
+}
+
+.node-remove:hover {
+  background: #ff3838;
+  transform: scale(1.1);
+}
+
+.canvas-stats {
+  padding: 0.8rem 1.5rem;
+  background: #f8f9fa;
+  border-top: 1px solid #e0e0e0;
+  font-size: 0.85rem;
+  color: #666;
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.connecting-hint {
+  color: #48bb78;
+  font-weight: 600;
+  animation: blink 2s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* SVG连线层 */
+.connections-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.connection-line {
+  fill: none;
+  stroke: #667eea;
+  stroke-width: 2;
+  stroke-dasharray: 5, 5;
+  animation: dash 1s linear infinite;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+.connection-delete-btn {
+  fill: #ff4757;
+  cursor: pointer;
+  pointer-events: all;
+  transition: all 0.3s ease;
+}
+
+.connection-delete-btn:hover {
+  fill: #ff3838;
+  r: 10;
+}
+
+.connection-delete-icon {
+  fill: white;
+  font-size: 12px;
+  font-weight: bold;
+  pointer-events: none;
+}
