@@ -20,6 +20,9 @@ export function useTextToImage() {
     seed: -1,
   });
 
+  // 步骤
+  const [currentStep, setCurrentStep] = useState(1);
+
   // 生成状态
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -80,13 +83,12 @@ export function useTextToImage() {
     setGeneratedImage(null);
 
     try {
-      const genRes = await fetch(`${config.API_BASE_URL}/api/replicate/generate`, {
+      const genRes = await fetch(`${config.API_BASE_URL}/api/siliconflow/text-to-image`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: prompt.trim(),
           negative_prompt: negativePrompt.trim() || undefined,
-          style: selectedStyle,
           ...params,
         }),
       });
@@ -96,39 +98,10 @@ export function useTextToImage() {
         throw new Error(errData.error || '生成请求失败');
       }
 
-      const { predictionId } = await genRes.json();
-
-      // 轮询直到完成
-      const startTime = Date.now();
-      const timeout = 120000; // 120秒超时
-
-      while (true) {
-        if (Date.now() - startTime > timeout) {
-          throw new Error('生成超时，请稍后重试');
-        }
-
-        await new Promise(r => setTimeout(r, 1000));
-
-        const pollRes = await fetch(
-          `${config.API_BASE_URL}/api/replicate/prediction/${predictionId}`
-        );
-        const pollData = await pollRes.json();
-
-        setProgress(pollData.progress || 0);
-
-        if (pollData.status === 'succeeded') {
-          setProgress(100);
-          setGeneratedImage({
-            url: Array.isArray(pollData.output) ? pollData.output[0] : pollData.output,
-            predictionId,
-          });
-          break;
-        }
-
-        if (pollData.status === 'failed') {
-          throw new Error(pollData.error || '图像生成失败');
-        }
-      }
+      setProgress(50);
+      const data = await genRes.json();
+      setProgress(100);
+      setGeneratedImage(data);
     } catch (e) {
       setError(e.message);
     }
@@ -141,6 +114,7 @@ export function useTextToImage() {
     setProgress(0);
     setError(null);
     setIsGenerating(false);
+    setCurrentStep(1);
   }, []);
 
   // 下载图片
@@ -155,6 +129,7 @@ export function useTextToImage() {
   }, [generatedImage]);
 
   return {
+    currentStep, setCurrentStep,
     prompt, setPrompt,
     negativePrompt, setNegativePrompt,
     optimizingPrompt, onOptimizePrompt: optimizePromptAction,

@@ -1,48 +1,52 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import Header from '../../components/shared/Header';
 
 describe('Header Component', () => {
-  const mockUser = { id: 1, name: 'Test User', balance: 200 };
-
   test('renders app title', () => {
-    render(<Header user={null} aiMode="cloud" />);
-    expect(screen.getByText('学习变现平台')).toBeInTheDocument();
+    render(<Header aiProvider="cloud" />);
+    expect(screen.getByText('AI漫剧创作平台')).toBeInTheDocument();
   });
 
   test('renders version', () => {
-    render(<Header user={null} aiMode="cloud" />);
-    expect(screen.getByText('v1.9.3')).toBeInTheDocument();
+    render(<Header aiProvider="cloud" />);
+    expect(screen.getByText('v2.8.0')).toBeInTheDocument();
   });
 
-  test('renders AI mode indicator', () => {
-    render(<Header user={null} aiMode="cloud" />);
+  test('renders cloud AI mode', () => {
+    render(<Header aiProvider="cloud" />);
     expect(screen.getByText('AI: 云端')).toBeInTheDocument();
   });
 
-  test('renders different AI modes correctly', () => {
-    const { container } = render(<Header user={null} aiMode="local" />);
-    const aiModeElement = container.querySelector('.ai-mode');
-    expect(aiModeElement.textContent).toContain('本地Ollama');
+  test('renders deepseek AI mode', () => {
+    render(<Header aiProvider="deepseek" />);
+    expect(screen.getByText('AI: DeepSeek')).toBeInTheDocument();
+  });
+
+  test('renders ollama AI mode', () => {
+    render(<Header aiProvider="ollama" />);
+    expect(screen.getByText('AI: Ollama')).toBeInTheDocument();
   });
 
   test('renders checking mode', () => {
-    render(<Header user={null} aiMode="checking" />);
+    render(<Header aiProvider="checking" />);
     expect(screen.getByText('AI: 检测中')).toBeInTheDocument();
   });
 
-  test('renders user balance when user is provided', () => {
-    render(<Header user={mockUser} aiMode="cloud" />);
-    expect(screen.getByText('余额: 200 元')).toBeInTheDocument();
-  });
-
-  test('does not render balance when user is null', () => {
-    render(<Header user={null} aiMode="cloud" />);
-    expect(screen.queryByText('余额')).not.toBeInTheDocument();
-  });
-
-  test('applies correct class based on aiMode', () => {
-    const { container } = render(<Header user={null} aiMode="local" />);
-    const aiModeElement = container.querySelector('.ai-mode.local');
+  test('applies correct class based on aiProvider', () => {
+    const { container } = render(<Header aiProvider="ollama" />);
+    const aiModeElement = container.querySelector('.ai-mode.ollama');
     expect(aiModeElement).toBeInTheDocument();
+  });
+
+  test('toggles theme when clicking theme button', () => {
+    render(<Header aiProvider="cloud" />);
+    const themeButton = screen.getByTitle(/浅色|深色/);
+    
+    // Initial state should be light (moon icon)
+    expect(themeButton).toHaveTextContent('🌙');
+    
+    // Click to toggle to dark
+    fireEvent.click(themeButton);
+    expect(themeButton).toHaveTextContent('☀️');
   });
 });

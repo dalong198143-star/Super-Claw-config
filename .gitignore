@@ -37,6 +37,11 @@ desktop.ini
 coverage/
 .nyc_output/
 
+# SSL certificates
+ssl/*.pem
+ssl/*.crt
+ssl/*.key
+
 # Docker
 .docker/
 

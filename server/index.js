@@ -1,411 +1,270 @@
-import express from 'express';
-import cors from 'cors';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
-import Database from 'better-sqlite3';
-import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import fs from 'fs';
-import fetch from 'node-fetch';
-import config from './config.js';
-import { createPrediction, getPrediction } from './services/replicate.js';
-import { optimizePrompt, chat } from './services/deepseek.js';
-
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = path.dirname(__filename);
+
+import express from 'express';
+import cors from 'cors';
+import multer from 'multer';
+import config from './config.js';
+import { textToImage, imageToVideo, getPrediction } from './services/replicate.js';
+import { textToImage as sfTextToImage, submitImageToVideo, getVideoStatus } from './services/siliconflow.js';
+import { optimizePrompt, chat } from './services/deepseek.js';
+import { generateStoryboard, optimizeShotPrompt, extractCharacters } from './services/storyboard.js';
+import { batchGenerateImages, estimateCost } from './services/comicImage.js';
+import { batchGenerateSpeech, estimateTTSCost } from './services/tts.js';
+import { synthesizeComicVideo, checkFFmpeg } from './services/videoSynthesis.js';
+import { extractSubtitlesFromStoryboard } from './services/subtitle.js';
+import { analyzeAndSplitEpisodes, generateEpisodesStoryboard, estimateEpisodeSplitCost } from './services/episodeSplit.js';
 
 const app = express();
 const PORT = config.PORT;
 
-const db = new Database('mvp.db');
-
-// 安全中间件
-app.use(helmet()); // 设置安全HTTP头
-
-// CORS配置 - 严格限制允许的源
-app.use(cors({ 
-  origin: config.ALLOWED_ORIGINS,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  maxAge: 86400 // 预检请求缓存24小时
+// CORS
+app.use(cors({
+  origin: config.ALLOWED_ORIGINS || '*',
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type'],
 }));
 
-// 速率限制 - 防止滥用
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15分钟
-  max: 100, // 每个IP最多100次请求
-  message: { error: '请求过于频繁，请稍后再试' },
-  standardHeaders: true,
-});
-
-const strictLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15分钟
-  max: 20, // 每个IP最多20次提交请求
-  message: { error: '提交过于频繁，请稍后再试' },
-});
-
-app.use('/api/', generalLimiter);
-app.use('/api/submit', strictLimiter);
-
-app.use(express.json({ limit: '10mb' })); // 限制JSON payload大小
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
-// 文件上传配置 - 添加大小和类型限制
+// 生产环境：提供构建后的前端静态文件
+if (process.env.NODE_ENV === 'production') {
+  const clientDist = path.join(__dirname, '..', 'client', 'dist');
+  if (fs.existsSync(clientDist)) {
+    app.use(express.static(clientDist));
+    // SPA fallback: 所有非 /api 和 /uploads 的 GET 请求返回 index.html
+    app.get(/^(?!\/(api|uploads)).*/, (req, res) => {
+      res.sendFile(path.join(clientDist, 'index.html'));
+    });
+    console.log('前端静态文件服务已启用:', clientDist);
+  }
+}
+
+// 生产环境请求日志
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      if (req.path.startsWith('/api/')) {
+        console.log(`${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+      }
+    });
+    next();
+  });
+}
+
+// 文件上传配置
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // 确保上传目录存在
     const uploadDir = path.join(__dirname, '../uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
+    if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // 生成安全的文件名
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `${uniqueSuffix}${ext}`);
-  }
-});
-
-const upload = multer({ 
-  storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024, // 限制10MB
-    files: 1 // 每次只能上传1个文件
+    cb(null, uniqueSuffix + path.extname(file.originalname));
   },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    // 只允许图片和视频文件
-    const allowedTypes = /jpeg|jpg|png|gif|mp4|avi|mov|webm/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    
-    if (mimetype && extname) {
-      return cb(null, true);
-    }
-    cb(new Error('不支持的文件类型'));
-  }
+    const allowed = /jpeg|jpg|png|gif|webp|mp4|mov|webm/;
+    const ext = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mime = allowed.test(file.mimetype);
+    cb(null, mime && ext ? true : new Error('不支持的文件类型'));
+  },
 });
 
-const initDb = () => {
-  db.exec(`CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    avatar TEXT,
-    balance INTEGER DEFAULT 0
-  )`);
+// ============================================================
+// Replicate 文生图
+// ============================================================
+app.post('/api/replicate/text-to-image', async (req, res) => {
+  const { prompt, negative_prompt, width, height, steps, guidance, seed } = req.body;
 
-  db.exec(`CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    description TEXT,
-    reward INTEGER NOT NULL,
-    difficulty INTEGER DEFAULT 1,
-    status TEXT DEFAULT 'open',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`);
-
-  db.exec(`CREATE TABLE IF NOT EXISTS submissions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    content TEXT,
-    file_url TEXT,
-    status TEXT DEFAULT 'pending',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(task_id) REFERENCES tasks(id),
-    FOREIGN KEY(user_id) REFERENCES users(id)
-  )`);
-
-  const taskCount = db.prepare('SELECT COUNT(*) FROM tasks').pluck().get();
-  if (taskCount === 0) {
-    const insertTask = db.prepare(
-      'INSERT INTO tasks (title, description, reward, difficulty) VALUES (?, ?, ?, ?)'
-    );
-    insertTask.run('生成一张风景画', '使用AI生成一张漂亮的风景画', 2, 1);
-    insertTask.run('生成一张头像', '使用AI生成一张卡通头像', 3, 1);
-    insertTask.run('修改图片风格', '将图片改成动漫风格', 5, 2);
-    insertTask.run('生成产品海报', '使用AI生成一张产品宣传海报', 10, 2);
-    insertTask.run('定制绘画', '根据详细描述生成定制绘画', 20, 3);
-  }
-
-  const userCount = db.prepare('SELECT COUNT(*) FROM users').pluck().get();
-  if (userCount === 0) {
-    db.prepare('INSERT INTO users (name, balance) VALUES (?, ?)').run('Demo User', 100);
-  }
-};
-
-initDb();
-
-app.get('/api/tasks', (req, res) => {
-  const { search, difficulty, sort } = req.query;
-  let query = 'SELECT * FROM tasks WHERE status = ?';
-  let params = ['open'];
-
-  // 输入验证和清理
-  if (search) {
-    // 限制搜索关键词长度
-    if (search.length > 100) {
-      return res.status(400).json({ error: '搜索关键词过长' });
-    }
-    query += ' AND (title LIKE ? OR description LIKE ?)';
-    params.push(`%${search}%`, `%${search}%`);
-  }
-
-  if (difficulty && difficulty !== 'all') {
-    const diffValue = parseInt(difficulty);
-    if (isNaN(diffValue) || diffValue < 1 || diffValue > 5) {
-      return res.status(400).json({ error: '无效的难度值' });
-    }
-    query += ' AND difficulty = ?';
-    params.push(diffValue);
-  }
-
-  // 白名单验证排序参数
-  const allowedSorts = ['reward_desc', 'reward_asc', 'difficulty_desc', 'difficulty_asc'];
-  if (sort && !allowedSorts.includes(sort)) {
-    return res.status(400).json({ error: '无效的排序参数' });
-  }
-
-  if (sort === 'reward_desc') {
-    query += ' ORDER BY reward DESC';
-  } else if (sort === 'reward_asc') {
-    query += ' ORDER BY reward ASC';
-  } else if (sort === 'difficulty_desc') {
-    query += ' ORDER BY difficulty DESC';
-  } else {
-    query += ' ORDER BY difficulty ASC';
-  }
-
-  try {
-    const tasks = db.prepare(query).all(...params);
-    res.json(tasks);
-  } catch (error) {
-    console.error('查询任务错误:', error);
-    res.status(500).json({ error: '查询失败' });
-  }
-});
-
-app.get('/api/tasks/:id', (req, res) => {
-  const taskId = parseInt(req.params.id);
-  
-  if (isNaN(taskId)) {
-    return res.status(400).json({ error: '无效的任务ID' });
-  }
-  
-  try {
-    const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId);
-    if (task) res.json(task);
-    else res.status(404).json({ error: 'Task not found' });
-  } catch (error) {
-    console.error('查询任务详情错误:', error);
-    res.status(500).json({ error: '查询失败' });
-  }
-});
-
-app.post('/api/submit', upload.single('file'), (req, res) => {
-  const { task_id, user_id, content } = req.body;
-  
-  // 输入验证
-  if (!task_id || !user_id) {
-    return res.status(400).json({ error: '缺少必要参数' });
-  }
-  
-  // 验证task_id和user_id是数字
-  const taskId = parseInt(task_id);
-  const userId = parseInt(user_id);
-  
-  if (isNaN(taskId) || isNaN(userId)) {
-    return res.status(400).json({ error: '无效的参数格式' });
-  }
-  
-  // 验证content长度
-  if (content && content.length > 5000) {
-    return res.status(400).json({ error: '内容过长' });
-  }
-  
-  const file_url = req.file ? `/uploads/${req.file.filename}` : null;
-
-  try {
-    const submission = db.prepare(
-      'INSERT INTO submissions (task_id, user_id, content, file_url, status) VALUES (?, ?, ?, ?, ?)'
-    ).run(taskId, userId, content, file_url, 'pending');
-
-    const task = db.prepare('SELECT reward FROM tasks WHERE id = ?').get(taskId);
-    if (task) {
-      const currentUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-      if (currentUser) {
-        db.prepare('UPDATE users SET balance = balance + ? WHERE id = ?')
-          .run(task.reward, userId);
-        db.prepare('UPDATE tasks SET status = ? WHERE id = ?').run('completed', taskId);
-      }
-    }
-
-    res.json({ success: true, submission_id: submission.lastInsertRowid });
-  } catch (error) {
-    console.error('提交错误:', error);
-    res.status(500).json({ error: '提交失败，请稍后重试' });
-  }
-});
-
-app.get('/api/user/:id', (req, res) => {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
-  if (user) res.json(user);
-  else res.status(404).json({ error: 'User not found' });
-});
-
-app.get('/api/ollama/tags', async (req, res) => {
-  try {
-    const ollamaRes = await fetch(`${config.OLLAMA_BASE_URL}/api/tags`);
-    const data = await ollamaRes.json();
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ error: 'Ollama not available' });
-  }
-});
-
-app.post('/api/ollama/generate', async (req, res) => {
-  try {
-    const requestBody = {
-      model: req.body.model || config.DEFAULT_MODEL,
-      prompt: req.body.prompt,
-      options: req.body.options || {}
-    };
-    const ollamaRes = await fetch(`${config.OLLAMA_BASE_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody)
-    });
-    const data = await ollamaRes.json();
-    res.json(data);
-  } catch (e) {
-    res.json({ response: 'AI 提示：您可以这样完成任务...（需要本地安装 Ollama）' });
-  }
-});
-
-app.get('/api/image-generate/:prompt', async (req, res) => {
-  const prompt = req.params.prompt;
-  const imageUrl = `${config.IMAGE_SERVICE_URL}/seed/${encodeURIComponent(prompt)}/512/512`;
-  res.json({ url: imageUrl, prompt: prompt });
-});
-
-app.post('/api/image-generate', async (req, res) => {
-  const { prompt, style, width = 512, height = 512 } = req.body;
-  const imageUrl = `${config.IMAGE_SERVICE_URL}/seed/${encodeURIComponent(prompt + style)}/${width}/${height}`;
-  res.json({
-    url: imageUrl,
-    prompt: prompt,
-    style: style,
-    width: width,
-    height: height,
-    status: 'completed'
-  });
-});
-
-app.get('/api/image-styles', async (req, res) => {
-  const styles = [
-    { id: 'realistic', name: '写实风格', description: '逼真的照片效果' },
-    { id: 'anime', name: '动漫风格', description: '日式动画风格' },
-    { id: 'watercolor', name: '水彩风格', description: '水彩画效果' },
-    { id: 'oil', name: '油画风格', description: '经典油画效果' },
-    { id: 'digital', name: '数字绘画', description: '现代数字艺术' },
-    { id: 'minimalist', name: '极简风格', description: '简约抽象' },
-    { id: 'fantasy', name: '奇幻风格', description: '魔幻梦幻效果' },
-    { id: 'cyberpunk', name: '赛博朋克', description: '未来科技感' }
-  ];
-  res.json(styles);
-});
-
-// === Replicate 文生图 API ===
-
-app.post('/api/replicate/generate', async (req, res) => {
-  const { prompt, negative_prompt, style, width, height, steps, guidance, seed } = req.body;
-
-  if (!prompt || prompt.trim().length === 0) {
+  if (!prompt || !prompt.trim()) {
     return res.status(400).json({ error: '请输入提示词' });
   }
   if (prompt.length > 2000) {
-    return res.status(400).json({ error: '提示词过长' });
-  }
-
-  const styleKeywords = {
-    realistic: 'photorealistic, hyperrealistic',
-    anime: 'anime style, manga style',
-    watercolor: 'watercolor painting',
-    oil: 'oil painting, classical',
-    digital: 'digital art, concept art',
-    minimalist: 'minimalist, simple, abstract',
-    fantasy: 'fantasy art, magical, ethereal',
-    cyberpunk: 'cyberpunk, futuristic, neon',
-  };
-
-  let fullPrompt = prompt.trim();
-  if (style && styleKeywords[style]) {
-    fullPrompt += ', ' + styleKeywords[style];
+    return res.status(400).json({ error: '提示词过长（最多2000字符）' });
   }
 
   try {
-    const result = await createPrediction(fullPrompt, {
+    const result = await textToImage(prompt.trim(), {
       negative_prompt,
-      width: Math.min(Math.max(parseInt(width) || 512, 256), 1024),
-      height: Math.min(Math.max(parseInt(height) || 512, 256), 1024),
-      steps: Math.min(Math.max(parseInt(steps) || 30, 20), 50),
-      guidance: Math.min(Math.max(parseFloat(guidance) || 7.5, 1), 20),
-      seed: parseInt(seed) || -1,
+      width, height, steps, guidance, seed,
     });
     res.json(result);
   } catch (e) {
-    console.error('Replicate generate error:', e.message);
-    if (e.message.includes('未配置')) {
-      return res.status(503).json({ error: e.message });
-    }
-    res.status(500).json({ error: '图像生成失败，请稍后重试' });
+    console.error('文生图错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ error: e.message });
   }
 });
 
+// ============================================================
+// Replicate 图生视频
+// ============================================================
+app.post('/api/replicate/image-to-video', async (req, res) => {
+  const { image, video_length, fps, sizing_strategy, motion_bucket_id, cond_aug } = req.body;
+
+  if (!image) {
+    return res.status(400).json({ error: '请上传图片' });
+  }
+
+  // 校验 base64 格式
+  if (!image.startsWith('data:image/')) {
+    return res.status(400).json({ error: '图片格式无效，需要 base64 data URI' });
+  }
+
+  // 限制大小：base64 约 4/3 原始大小，6.7M base64 ≈ 5MB 图片
+  if (image.length > 7 * 1024 * 1024) {
+    return res.status(400).json({ error: '图片过大（最大5MB）' });
+  }
+
+  try {
+    const result = await imageToVideo(image, {
+      video_length: video_length || '14_frames',
+      fps: fps || 7,
+      sizing_strategy: sizing_strategy || 'maintain_aspect_ratio',
+      motion_bucket_id: motion_bucket_id || 127,
+      cond_aug: cond_aug != null ? cond_aug : 0.02,
+    });
+    res.json(result);
+  } catch (e) {
+    console.error('图生视频错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// 硅基流动 文生图
+// ============================================================
+app.post('/api/siliconflow/text-to-image', async (req, res) => {
+  const { prompt, negative_prompt, width, height, steps, guidance, seed } = req.body;
+
+  if (!prompt || !prompt.trim()) {
+    return res.status(400).json({ error: '请输入提示词' });
+  }
+  if (prompt.length > 2000) {
+    return res.status(400).json({ error: '提示词过长（最多2000字符）' });
+  }
+
+  try {
+    const result = await sfTextToImage(prompt.trim(), {
+      width: Math.min(Math.max(parseInt(width) || 512, 256), 1024),
+      height: Math.min(Math.max(parseInt(height) || 512, 256), 1024),
+      steps: Math.min(Math.max(parseInt(steps) || 30, 1), 50),
+      guidance: guidance ? parseFloat(guidance) : undefined,
+      seed: seed && parseInt(seed) > 0 ? parseInt(seed) : undefined,
+    });
+    res.json(result);
+  } catch (e) {
+    console.error('硅基流动 文生图错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ error: e.message });
+  }
+});
+
+// ============================================================
+// 硅基流动 图生视频
+// ============================================================
+app.post('/api/siliconflow/image-to-video', async (req, res) => {
+  let { image, prompt, duration, resolution, negative_prompt, seed } = req.body;
+
+  if (!image) {
+    return res.status(400).json({ error: '请上传图片' });
+  }
+
+  // 只校验 base64 大小，URL 直接透传
+  if (image.startsWith('data:image/') && image.length > 10 * 1024 * 1024) {
+    return res.status(400).json({ error: '图片过大（最大10MB）' });
+  }
+
+  // 分辨率 → image_size
+  const sizeMap = {
+    '720p': '1280x720',
+    '1080p': '1920x1080',
+  };
+
+  try {
+    const result = await submitImageToVideo(image, {
+      prompt: prompt || '画面缓慢自然运动',
+      image_size: sizeMap[resolution] || '1280x720',
+      duration: duration || '5s',
+      negative_prompt,
+      seed: seed || undefined,
+    });
+    res.json(result);
+  } catch (e) {
+    console.error('硅基流动 图生视频错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ error: e.message });
+  }
+});
+
+app.post('/api/siliconflow/video-status', async (req, res) => {
+  const { requestId } = req.body;
+  if (!requestId) return res.status(400).json({ error: '缺少 requestId' });
+
+  try {
+    const result = await getVideoStatus(requestId);
+    res.json(result);
+  } catch (e) {
+    console.error('硅基流动 状态查询错误:', e.message);
+    res.status(500).json({ error: '查询视频状态失败' });
+  }
+});
+
+// ============================================================
+// Replicate 轮询（文生图+图生视频共用）
+// ============================================================
 app.get('/api/replicate/prediction/:id', async (req, res) => {
   const { id } = req.params;
-  if (!id) {
-    return res.status(400).json({ error: '缺少 prediction ID' });
-  }
+  if (!id) return res.status(400).json({ error: '缺少 prediction ID' });
 
   try {
     const result = await getPrediction(id);
     res.json(result);
   } catch (e) {
-    console.error('Replicate prediction error:', e.message);
+    console.error('轮询错误:', e.message);
     res.status(500).json({ error: '查询状态失败' });
   }
 });
 
-// === DeepSeek API ===
-
+// ============================================================
+// DeepSeek 提示词优化
+// ============================================================
 app.post('/api/deepseek/optimize-prompt', async (req, res) => {
   const { prompt } = req.body;
 
-  if (!prompt || prompt.trim().length === 0) {
+  if (!prompt || !prompt.trim()) {
     return res.status(400).json({ error: '请输入提示词' });
   }
   if (prompt.length > 1000) {
-    return res.status(400).json({ error: '提示词过长' });
+    return res.status(400).json({ error: '提示词过长（最多1000字符）' });
   }
 
   try {
     const optimized = await optimizePrompt(prompt.trim());
     res.json({ optimized });
   } catch (e) {
-    console.error('DeepSeek optimize error:', e.message);
-    if (e.message.includes('未配置')) {
-      return res.status(503).json({ error: e.message });
-    }
-    res.status(500).json({ error: '提示词优化失败' });
+    console.error('提示词优化错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ error: e.message });
   }
 });
 
+// ============================================================
+// DeepSeek Chat
+// ============================================================
 app.post('/api/deepseek/chat', async (req, res) => {
   const { messages } = req.body;
 
@@ -417,49 +276,455 @@ app.post('/api/deepseek/chat', async (req, res) => {
     const reply = await chat(messages);
     res.json({ reply });
   } catch (e) {
-    console.error('DeepSeek chat error:', e.message);
-    if (e.message.includes('未配置')) {
-      return res.status(503).json({ error: e.message });
-    }
-    res.status(500).json({ error: 'AI 对话失败' });
+    console.error('Chat 错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ error: e.message });
   }
 });
 
-// 健康检查端点 - 移除敏感信息
-app.get('/api/health', (req, res) => {
+// ============================================================
+// AI漫剧 - 分镜生成
+// ============================================================
+app.post('/api/comic-drama/generate-storyboard', async (req, res) => {
+  const { script, episodeId, style } = req.body;
+
+  if (!script || !script.trim()) {
+    return res.status(400).json({ error: '请输入剧本内容' });
+  }
+
+  if (script.length > 10000) {
+    return res.status(400).json({ error: '剧本过长（最多10000字符）' });
+  }
+
+  try {
+    console.log('开始生成分镜脚本...');
+    const storyboard = await generateStoryboard(script, {
+      episodeId: episodeId || 1,
+      style: style || 'modern_anime',
+    });
+    
+    console.log('分镜脚本生成成功');
+    res.json({
+      success: true,
+      storyboard,
+      characters: extractCharacters(storyboard),
+    });
+  } catch (e) {
+    console.error('分镜生成错误:', e.message);
+    const code = e.message.includes('未配置') ? 503 : 500;
+    res.status(code).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 优化镜头提示词
+// ============================================================
+app.post('/api/comic-drama/optimize-prompt', async (req, res) => {
+  const { prompt, characterDesc } = req.body;
+
+  if (!prompt || !prompt.trim()) {
+    return res.status(400).json({ error: '请输入提示词' });
+  }
+
+  try {
+    const optimized = await optimizeShotPrompt(prompt, characterDesc);
+    res.json({
+      success: true,
+      optimizedPrompt: optimized,
+    });
+  } catch (e) {
+    console.error('提示词优化错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 批量生成图像
+// ============================================================
+app.post('/api/comic-drama/batch-generate-images', async (req, res) => {
+  const { shots, options } = req.body;
+
+  if (!shots || !Array.isArray(shots) || shots.length === 0) {
+    return res.status(400).json({ 
+      error: '请提供镜头列表',
+      success: false,
+    });
+  }
+
+  // 限制单次批量生成数量（避免资源耗尽）
+  if (shots.length > 50) {
+    return res.status(400).json({ 
+      error: '单次最多生成50张图像，请分批处理',
+      success: false,
+    });
+  }
+
+  try {
+    console.log(`[API] 开始批量生成 ${shots.length} 张图像...`);
+    
+    // 提取所有镜头的prompt和shot_id
+    const shotList = shots.map(shot => ({
+      shot_id: shot.shot_id || shot.shotId,
+      prompt: shot.prompt,
+    }));
+
+    // 进度回调（通过Server-Sent Events实现实时推送会更优，这里先使用简单方式）
+    let lastProgress = 0;
+    const onProgress = (current, total, shotId) => {
+      const progress = Math.round((current / total) * 100);
+      if (progress !== lastProgress) {
+        console.log(`[API] 进度: ${progress}% (${current}/${total}) - ${shotId}`);
+        lastProgress = progress;
+      }
+    };
+
+    // 执行批量生成
+    const result = await batchGenerateImages(shotList, options || {}, onProgress);
+
+    console.log(`[API] 批量生成完成: 成功 ${result.successCount}, 失败 ${result.failCount}`);
+
+    res.json({
+      success: true,
+      ...result,
+      costEstimate: estimateCost(shots.length),
+    });
+  } catch (e) {
+    console.error('[API] 批量生成错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 估算生成成本
+// ============================================================
+app.post('/api/comic-drama/estimate-cost', (req, res) => {
+  const { shotCount } = req.body;
+
+  if (!shotCount || shotCount <= 0) {
+    return res.status(400).json({ 
+      error: '请提供有效的镜头数量',
+      success: false,
+    });
+  }
+
+  try {
+    const estimate = estimateCost(shotCount);
+    res.json({
+      success: true,
+      ...estimate,
+    });
+  } catch (e) {
+    console.error('[API] 成本估算错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 批量生成配音
+// ============================================================
+app.post('/api/comic-drama/batch-generate-speech', async (req, res) => {
+  const { dialogues, options } = req.body;
+
+  if (!dialogues || !Array.isArray(dialogues) || dialogues.length === 0) {
+    return res.status(400).json({ 
+      error: '请提供台词列表',
+      success: false,
+    });
+  }
+
+  try {
+    console.log(`[API] 开始批量生成 ${dialogues.length} 条语音...`);
+    
+    let lastProgress = 0;
+    const onProgress = (current, total, shotId) => {
+      const progress = Math.round((current / total) * 100);
+      if (progress !== lastProgress) {
+        console.log(`[API] TTS进度: ${progress}% (${current}/${total}) - ${shotId}`);
+        lastProgress = progress;
+      }
+    };
+
+    const result = await batchGenerateSpeech(dialogues, options || {}, onProgress);
+
+    console.log(`[API] TTS生成完成: 成功 ${result.successCount}, 失败 ${result.failCount}`);
+
+    // 计算TTS成本
+    const totalTextLength = dialogues.reduce((sum, d) => sum + (d.text?.length || 0), 0);
+    const ttsCostEstimate = estimateTTSCost(totalTextLength, options?.engine || 'azure');
+
+    res.json({
+      success: true,
+      ...result,
+      ttsCostEstimate,
+    });
+  } catch (e) {
+    console.error('[API] TTS生成错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 估算TTS成本
+// ============================================================
+app.post('/api/comic-drama/estimate-tts-cost', (req, res) => {
+  const { textLength, engine } = req.body;
+
+  if (!textLength || textLength <= 0) {
+    return res.status(400).json({ 
+      error: '请提供有效的文本长度',
+      success: false,
+    });
+  }
+
+  try {
+    const estimate = estimateTTSCost(textLength, engine || 'azure');
+    res.json({
+      success: true,
+      ...estimate,
+    });
+  } catch (e) {
+    console.error('[API] TTS成本估算错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 智能分集分析
+// ============================================================
+app.post('/api/comic-drama/analyze-episodes', async (req, res) => {
+  const { script, options } = req.body;
+
+  if (!script || !script.trim()) {
+    return res.status(400).json({ 
+      error: '请输入剧本内容',
+      success: false,
+    });
+  }
+
+  // 限制剧本长度（避免过长导致LLM超时）
+  if (script.length > 100000) {
+    return res.status(400).json({ 
+      error: '剧本过长，请控制在10万字以内',
+      success: false,
+    });
+  }
+
+  try {
+    console.log(`[API] 开始智能分集分析，剧本长度: ${script.length}字符`);
+
+    const episodes = await analyzeAndSplitEpisodes(script, options || {});
+
+    // 估算成本
+    const costEstimate = estimateEpisodeSplitCost(script.length, episodes.length);
+
+    console.log(`[API] 分集完成: ${episodes.length}集`);
+
+    res.json({
+      success: true,
+      episodes,
+      costEstimate,
+      totalDuration: episodes.reduce((sum, ep) => sum + ep.estimated_duration, 0),
+      totalShots: episodes.reduce((sum, ep) => sum + ep.estimated_shots, 0),
+    });
+  } catch (e) {
+    console.error('[API] 分集分析错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 批量生成分集分镜
+// ============================================================
+app.post('/api/comic-drama/generate-episodes-storyboard', async (req, res) => {
+  const { script, episodes, options } = req.body;
+
+  if (!script || !episodes || !Array.isArray(episodes) || episodes.length === 0) {
+    return res.status(400).json({ 
+      error: '请提供剧本和分集列表',
+      success: false,
+    });
+  }
+
+  try {
+    console.log(`[API] 开始批量生成${episodes.length}集的分镜脚本...`);
+
+    let lastProgress = 0;
+    const onProgress = (current, total, episodeNumber) => {
+      const progress = Math.round((current / total) * 100);
+      if (progress !== lastProgress) {
+        console.log(`[API] 分镜进度: ${progress}% (${current}/${total}) - 第${episodeNumber}集`);
+        lastProgress = progress;
+      }
+    };
+
+    const results = await generateEpisodesStoryboard(script, episodes, onProgress);
+
+    const successCount = results.filter(r => r.success).length;
+    const failCount = results.filter(r => !r.success).length;
+
+    console.log(`[API] 分镜生成完成: 成功${successCount}集, 失败${failCount}集`);
+
+    res.json({
+      success: true,
+      results,
+      successCount,
+      failCount,
+      total: episodes.length,
+    });
+  } catch (e) {
+    console.error('[API] 批量分镜生成错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// AI漫剧 - 视频合成
+// ============================================================
+app.post('/api/comic-drama/synthesize-video', async (req, res) => {
+  const { images, dialogues, subtitles, bgm, options } = req.body;
+
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({
+      error: '请提供图像列表',
+      success: false,
+    });
+  }
+
+  try {
+    console.log(`[API] 开始视频合成: ${images.length}张图像, ${dialogues?.length || 0}条台词`);
+
+    const result = await synthesizeComicVideo({
+      images,
+      dialogues: dialogues || [],
+      subtitles: subtitles || [],
+      bgm: bgm || null,
+      options: {
+        fps: options?.fps || 24,
+        resolution: options?.resolution || '1280x720',
+        outputDir: options?.outputDir || path.join(__dirname, '../uploads/comic-drama'),
+        ttsEngine: options?.ttsEngine || 'azure',
+        ttsVoice: options?.ttsVoice,
+      },
+    });
+
+    console.log('[API] 视频合成完成:', result);
+    res.json({
+      success: true,
+      videoUrl: result.startsWith('/') ? result : `/uploads/comic-drama/${path.basename(result)}`,
+      videoPath: result,
+    });
+  } catch (e) {
+    console.error('[API] 视频合成错误:', e.message);
+    res.status(500).json({
+      error: e.message,
+      success: false,
+    });
+  }
+});
+
+// ============================================================
+// 辅助函数：计算视频总时长
+// ============================================================
+function calculateVideoDuration(storyboard) {
+  let totalDuration = 0;
+  
+  storyboard.scenes.forEach(scene => {
+    scene.shots.forEach(shot => {
+      totalDuration += shot.duration || 3; // 默认3秒
+    });
+  });
+
+  return totalDuration;
+}
+
+// ============================================================
+// 文件上传
+// ============================================================
+app.post('/api/upload', upload.single('file'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: '请选择文件' });
+  }
   res.json({
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-    // 移除version信息，避免泄露
+    url: `/uploads/${req.file.filename}`,
+    name: req.file.originalname,
+    size: req.file.size,
+    type: req.file.mimetype,
   });
 });
 
-// 错误处理中间件 - 捕获所有未处理的错误
+// ============================================================
+// 健康检查
+// ============================================================
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// 错误处理
 app.use((err, req, res, next) => {
   console.error('服务器错误:', err);
-  
-  // Multer错误处理
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({ error: '文件过大，最大支持10MB' });
+      return res.status(413).json({ error: '文件过大（最大50MB）' });
     }
-    return res.status(400).json({ error: '文件上传错误' });
+    return res.status(400).json({ error: '文件上传失败' });
   }
-  
-  // 通用错误
-  res.status(500).json({ 
-    error: '服务器内部错误',
-    message: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
+  res.status(500).json({ error: '服务器内部错误' });
 });
 
-// 404处理
+// 404
 app.use((req, res) => {
   res.status(404).json({ error: '接口不存在' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+const server = app.listen(PORT, () => {
+  console.log(`AI漫剧创作平台 后端服务: http://localhost:${PORT}`);
+  console.log(`文生图 (硅基流动): ${config.SILICONFLOW_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`图生视频 (硅基流动): ${config.SILICONFLOW_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`DeepSeek API: ${config.DEEPSEEK_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`分镜生成 (LLM): ${config.DEEPSEEK_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`批量图像生成: ${config.SILICONFLOW_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`TTS配音服务: ${config.AZURE_TTS_KEY || config.ELEVENLABS_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`FFmpeg视频合成: 待检测`);
+});
+
+// 优雅关闭
+process.on('SIGTERM', () => {
+  console.log('收到 SIGTERM 信号，开始优雅关闭...');
+  server.close(() => {
+    console.log('HTTP 服务已关闭');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    console.error('强制退出（超时）');
+    process.exit(1);
+  }, 10000);
+});
+
+process.on('SIGINT', () => {
+  console.log('收到 SIGINT 信号，开始关闭...');
+  server.close(() => process.exit(0));
 });

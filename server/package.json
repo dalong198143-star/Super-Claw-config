@@ -1,18 +1,25 @@
 {
-  "name": "mvp-server",
-  "version": "1.10.0",
+  "name": "comic-drama-platform-server",
+  "version": "2.8.0-alpha",
+  "description": "Backend services for AI comic drama creation platform",
   "type": "module",
-  "description": "",
   "main": "index.js",
   "scripts": {
     "dev": "node index.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:watch": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage"
   },
   "dependencies": {
-    "express": "^4.21.2",
     "cors": "^2.8.5",
-    "node-fetch": "^3.3.2",
-    "better-sqlite3": "^11.8.0",
-    "multer": "^1.4.5-lts.1"
+    "dotenv": "^17.4.2",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.4.1",
+    "jest": "^30.4.2"
   }
 }

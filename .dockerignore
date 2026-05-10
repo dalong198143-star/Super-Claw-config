@@ -30,17 +30,34 @@ Thumbs.db
 *.md
 !README.md
 
-# Test files
+# Test files and coverage
 __tests__
 coverage
+.nyc_output
 *.test.js
 *.test.jsx
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# SSL certificates (mounted at runtime)
+ssl/*.pem
+ssl/*.crt
+ssl/*.key
 
 # Docker files
 Dockerfile
 docker-compose.yml
 .dockerignore
 
-# Development scripts
-dev.sh
-start.sh
+# Scripts
+*.sh
+*.bat
+*.ps1
+
+# Misc
+.claude
+tmp/
+__pycache__/

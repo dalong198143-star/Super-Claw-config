@@ -1,14 +1,11 @@
 import React from 'react'
 
 const tools = [
-  { id: 'text-to-image', icon: '🖼️', name: '文生图', desc: '文字生成图片' },
-  { id: 'image-to-video', icon: '🎬', name: '图生视频', desc: '图片生成视频' },
-  { id: 'image-to-image', icon: '🔄', name: '图生图', desc: '图片变换风格' },
-  { id: 'video-to-image', icon: '📹', name: '视频生图', desc: '视频提取图片' },
-  { id: 'motion-transfer', icon: '🕺', name: '动作迁移', desc: '10秒快速/20秒高精度' },
-  { id: 'outfit', icon: '👗', name: '换装', desc: '智能换装/边缘优化' },
-  { id: 'upscale', icon: '🔧', name: '重绘洗图', desc: '去噪/增强/风格' },
-  { id: 'video-join', icon: '🎬', name: '视频拼接', desc: '多段拼接成长视频' }
+  { id: 'home', icon: '🏠', name: '首页', desc: '创作画廊', status: 'ready' },
+  { id: 'comic-drama', icon: '🎭', name: 'AI漫剧', desc: '剧本→视频', status: 'ready' },
+  { id: 'text-to-image', icon: '🖼️', name: '文生图', desc: '文字→图片', status: 'ready' },
+  { id: 'image-to-video', icon: '🎥', name: '图生视频', desc: '图片→视频', status: 'ready' },
+  { id: 'anime-video', icon: '🎬', name: '动漫视频', desc: '提示词→视频', status: 'ready' },
 ]
 
 function ToolSelector({ selectedTool, onSelectTool }) {
@@ -21,7 +18,12 @@ function ToolSelector({ selectedTool, onSelectTool }) {
           onClick={() => onSelectTool(tool.id)}
         >
           <span className="tool-icon">{tool.icon}</span>
-          <span className="tool-name">{tool.name}</span>
+          <span className="tool-name">
+            {tool.name}
+            {tool.status === 'dev' && (
+              <span className="tool-badge-dev">开发中</span>
+            )}
+          </span>
           <span className="tool-desc">{tool.desc}</span>
         </button>
       ))}

@@ -8,127 +8,6 @@
 
 ---
 
-## 📋 任务相关 API
-
-### 1. 获取任务列表
-
-**GET** `/api/tasks`
-
-获取所有开放的任务列表，支持搜索和筛选。
-
-#### 请求参数
-
-| 参数 | 类型 | 必填 | 说明 | 示例 |
-|------|------|------|------|------|
-| search | string | 否 | 搜索关键词（标题或描述） | `?search=风景` |
-| difficulty | integer | 否 | 难度等级 (1-3) | `?difficulty=2` |
-| sort | string | 否 | 排序方式 | `?sort=reward_desc` |
-
-**排序选项**:
-- `difficulty_asc` - 难度升序（默认）
-- `difficulty_desc` - 难度降序
-- `reward_asc` - 奖励升序
-- `reward_desc` - 奖励降序
-
-#### 响应示例
-
-```json
-[
-  {
-    "id": 1,
-    "title": "生成一张风景画",
-    "description": "使用AI生成一张漂亮的风景画",
-    "reward": 2,
-    "difficulty": 1,
-    "status": "open",
-    "created_at": "2026-05-05 10:00:00"
-  },
-  {
-    "id": 2,
-    "title": "生成一张头像",
-    "description": "使用AI生成一张卡通头像",
-    "reward": 3,
-    "difficulty": 1,
-    "status": "open",
-    "created_at": "2026-05-05 10:01:00"
-  }
-]
-```
-
----
-
-### 2. 获取单个任务详情
-
-**GET** `/api/tasks/:id`
-
-获取指定任务的详细信息。
-
-#### 路径参数
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| id | integer | 是 | 任务ID |
-
-#### 响应示例
-
-```json
-{
-  "id": 1,
-  "title": "生成一张风景画",
-  "description": "使用AI生成一张漂亮的风景画",
-  "reward": 2,
-  "difficulty": 1,
-  "status": "open",
-  "created_at": "2026-05-05 10:00:00"
-}
-```
-
-#### 错误响应
-
-```json
-{
-  "error": "Task not found"
-}
-```
-
----
-
-### 3. 提交任务作品
-
-**POST** `/api/submit`
-
-提交任务完成作品，支持文件上传。
-
-#### 请求格式
-
-`multipart/form-data`
-
-#### 表单字段
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| task_id | integer | 是 | 任务ID |
-| user_id | integer | 否 | 用户ID（默认为1） |
-| content | string | 否 | 文字说明 |
-| file | file | 否 | 作品文件 |
-
-#### 响应示例
-
-```json
-{
-  "success": true,
-  "submission_id": 123
-}
-```
-
-#### 业务逻辑
-
-1. 保存提交记录到数据库
-2. 自动增加用户余额（任务奖励金额）
-3. 将任务状态更新为 "completed"
-
----
-
 ## 👤 用户相关 API
 
 ### 4. 获取用户信息
@@ -404,30 +283,6 @@ http://localhost:3000/uploads/<filename>
 | avatar | TEXT | 头像URL |
 | balance | INTEGER | 余额（分） |
 
-### tasks 表
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | INTEGER | 主键，自增 |
-| title | TEXT | 任务标题 |
-| description | TEXT | 任务描述 |
-| reward | INTEGER | 奖励金额（分） |
-| difficulty | INTEGER | 难度等级 (1-3) |
-| status | TEXT | 状态 (open/completed) |
-| created_at | DATETIME | 创建时间 |
-
-### submissions 表
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | INTEGER | 主键，自增 |
-| task_id | INTEGER | 任务ID（外键） |
-| user_id | INTEGER | 用户ID（外键） |
-| content | TEXT | 提交内容 |
-| file_url | TEXT | 文件URL |
-| status | TEXT | 状态 (pending/approved/rejected) |
-| created_at | DATETIME | 提交时间 |
-
 ---
 
 ## 🧪 测试示例
@@ -435,15 +290,6 @@ http://localhost:3000/uploads/<filename>
 ### cURL 示例
 
 ```bash
-# 获取任务列表
-curl http://localhost:3000/api/tasks
-
-# 搜索任务
-curl "http://localhost:3000/api/tasks?search=风景&difficulty=1"
-
-# 获取单个任务
-curl http://localhost:3000/api/tasks/1
-
 # 获取用户信息
 curl http://localhost:3000/api/user/1
 
@@ -466,23 +312,7 @@ curl -X POST http://localhost:3000/api/ollama/generate \
 
 ### JavaScript 示例
 
-```javascript
-// 获取任务列表
-const response = await fetch('http://localhost:3000/api/tasks');
-const tasks = await response.json();
-
-// 提交任务
-const formData = new FormData();
-formData.append('task_id', 1);
-formData.append('content', '这是我的作品');
-formData.append('file', fileInput.files[0]);
-
-const submitResponse = await fetch('http://localhost:3000/api/submit', {
-  method: 'POST',
-  body: formData
-});
-const result = await submitResponse.json();
-```
+*(暂无特定示例，请参考通用 Fetch API 用法)*
 
 ---
 
@@ -498,7 +328,6 @@ const result = await submitResponse.json();
 
 ### v1.0.0 (2026-05-01)
 
-- ✅ 基础任务系统
 - ✅ 用户账户系统
 - ✅ AI集成（Ollama）
 - ✅ 图像生成功能

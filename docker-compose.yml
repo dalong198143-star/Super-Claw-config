@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: learning-to-earn-app
+    container_name: comic-drama-platform-app
     ports:
       - "3000:3000"
     environment:
@@ -17,7 +17,6 @@ services:
       - ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
     volumes:
       - uploads_data:/app/uploads
-      - db_data:/app/server
     depends_on:
       ollama:
         condition: service_healthy
@@ -79,8 +78,6 @@ services:
 
 volumes:
   uploads_data:
-    driver: local
-  db_data:
     driver: local
   ollama_data:
     driver: local

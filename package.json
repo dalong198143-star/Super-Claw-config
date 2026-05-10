@@ -1,16 +1,16 @@
 {
-  "name": "mvp-learning-to-earn",
-  "version": "1.1.0",
+  "name": "comic-drama-platform",
+  "version": "2.8.0-alpha",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "node server/index.js",
     "dev:client": "cd client && npm run dev"
   },
-  "keywords": [],
+  "keywords": ["ai", "comic", "drama", "anime", "video-generation"],
   "author": "",
   "license": "ISC",
-  "description": "MVP for learning to earn platform",
+  "description": "AI漫剧创作平台 - AI Comic Drama Creation Platform",
   "devDependencies": {
     "concurrently": "^9.1.2"
   },

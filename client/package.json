@@ -1,7 +1,8 @@
 {
-  "name": "client",
+  "name": "comic-drama-platform",
   "private": true,
-  "version": "1.10.0",
+  "version": "2.8.0-alpha",
+  "description": "AI-driven comic drama creation platform - One sentence to generate a full anime series",
   "type": "module",
   "scripts": {
     "dev": "vite",

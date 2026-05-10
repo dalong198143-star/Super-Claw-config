@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import UserSwitcher from './UserSwitcher'
 
-function Header({ user, aiMode, onUserChange }) {
+function Header({ aiProvider }) {
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme')
     return saved === 'dark' || (saved === null && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -17,23 +16,24 @@ function Header({ user, aiMode, onUserChange }) {
     }
   }, [isDark])
 
+  const aiLabel = aiProvider === 'checking' ? '检测中'
+    : aiProvider === 'deepseek' ? 'DeepSeek'
+    : aiProvider === 'ollama' ? 'Ollama'
+    : '云端'
+
   return (
     <header className="header">
-      <h1>学习变现平台</h1>
-      <span className="version">v1.10.0</span>
+      <h1>AI漫剧创作平台</h1>
+      <span className="version">v2.8.0</span>
       <div className="header-right">
-        <div className={`ai-mode ${aiMode}`}>
-          AI: {aiMode === 'checking' ? '检测中' : aiMode === 'local' ? '本地Ollama' : '云端'}
-        </div>
-        {user && <div className="balance">余额: {user.balance} 元</div>}
-        <button 
+        <div className={`ai-mode ${aiProvider}`}>AI: {aiLabel}</div>
+        <button
           className="theme-toggle"
           onClick={() => setIsDark(!isDark)}
-          title={isDark ? '切换到浅色模式' : '切换到深色模式'}
+          title={isDark ? '浅色' : '深色'}
         >
           {isDark ? '☀️' : '🌙'}
         </button>
-        {user && <UserSwitcher currentUser={user} onUserChange={onUserChange} />}
       </div>
     </header>
   )

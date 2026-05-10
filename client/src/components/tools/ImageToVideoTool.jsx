@@ -1,162 +1,229 @@
-import React from 'react'
+import React, { useState } from 'react'
+import { videoMotionTemplates } from '../../data/promptTemplates'
 
-const videoResolutions = [
-  { id: '2160p', name: '4K', description: '3840 × 2160' },
-  { id: '1080p', name: '1080p', description: '1920 × 1080' },
-  { id: '720p', name: '720p', description: '1280 × 720' },
-  { id: '480p', name: '480p', description: '854 × 480' },
-]
-
-const videoAspectRatios = [
-  { id: '16:9', name: '宽屏', description: '16:9' },
-  { id: '9:16', name: '竖屏', description: '9:16' },
-  { id: '1:1', name: '正方形', description: '1:1' },
-  { id: '4:3', name: '标准', description: '4:3' },
-]
-
-function ImageToVideoTool({ 
-  uploadedImage, 
-  originalImageSize, 
-  lockOriginalRatio, 
-  onLockRatioChange,
-  videoFitMode, 
-  onFitModeChange,
-  videoResolution, 
-  onResolutionChange,
-  videoAspectRatio, 
-  onAspectRatioChange,
+function ImageToVideoTool({
+  image,
   onImageUpload,
   onRemoveImage,
-  onNextStep,
-  hasInput
+  onGenerate,
+  isGenerating,
+  progress,
+  result,
+  error,
+  onDownload,
+  onReset,
+  params,
+  onParamChange,
 }) {
-  return (
-    <div className="workflow-content">
-      <div className="step-indicator">
-        <span className="current-step">步骤1/3</span>
-        <span className="step-title">输入素材</span>
-      </div>
-      <div className="input-section">
-        <label>📷 上传图片（图生视频）</label>
-        <div className="upload-area">
-          {uploadedImage ? (
-            <div className="uploaded-preview">
-              <img src={uploadedImage} alt="Uploaded" />
-              <button className="remove-upload" onClick={onRemoveImage}>✕</button>
+  const [step, setStep] = useState(1)
+
+  // Step 1: 上传图片
+  if (step === 1) {
+    return (
+      <div className="tool-panel">
+        <div className="tool-header">
+          <h2>图生视频</h2>
+          <span className="tool-step">步骤 1/3 · 上传图片</span>
+        </div>
+
+        <div className="tool-body">
+          {image ? (
+            <div className="preview-box">
+              <img src={image} alt="预览" className="preview-image" />
+              <button className="btn-remove" onClick={() => { onRemoveImage(); }}>✕ 移除</button>
             </div>
           ) : (
-            <label className="upload-label">
-              <input type="file" accept="image/*" onChange={onImageUpload} className="upload-input" />
+            <label className="upload-box">
+              <input type="file" accept="image/*" onChange={onImageUpload} hidden />
               <span className="upload-icon">📷</span>
-              <span>点击或拖拽上传图片</span>
+              <span className="upload-text">点击上传图片</span>
+              <span className="upload-hint">支持 JPG / PNG / WebP，最大 5MB</span>
             </label>
+          )}
+
+          {image && (
+            <div className="tool-actions">
+              <button className="btn-primary" onClick={() => setStep(2)}>
+                下一步：配置参数 →
+              </button>
+            </div>
           )}
         </div>
       </div>
-      <div className="video-settings">
-        {uploadedImage && originalImageSize && (
-          <div className="original-image-info">
-            <div className="info-header">
-              <span className="info-icon">🖼️</span>
-              <span className="info-title">原始图像信息</span>
+    )
+  }
+
+  // Step 2: 配置参数 + 生成视频
+  if (step === 2) {
+    const hasStarted = isGenerating || progress > 0 || result || error
+
+    return (
+      <div className="tool-panel">
+        <div className="tool-header">
+          <h2>图生视频</h2>
+          <span className="tool-step">步骤 2/3 · 配置 & 生成</span>
+        </div>
+
+        <div className="tool-body">
+          <div className="preview-box mini">
+            <img src={image} alt="源图" className="preview-image-small" />
+            <span className="preview-label">源图</span>
+          </div>
+
+          {!hasStarted && (
+            <div className="workflow-content">
+              <div className="step-section">
+                <label className="step-label">视频时长</label>
+                <div className="style-grid">
+                  {[
+                    { id: '2s', name: '2 秒', desc: '快速生成' },
+                    { id: '5s', name: '5 秒', desc: '标准时长' },
+                    { id: '8s', name: '8 秒', desc: '更长故事' },
+                  ].map(opt => (
+                    <div
+                      key={opt.id}
+                      className={`style-card ${params.duration === opt.id ? 'selected' : ''}`}
+                      onClick={() => onParamChange('duration', opt.id)}
+                    >
+                      <div className="style-card-check">{params.duration === opt.id ? '✓' : ''}</div>
+                      <div className="style-card-name">{opt.name}</div>
+                      <div className="style-card-desc">{opt.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="step-section">
+                <label className="step-label">分辨率</label>
+                <div className="style-grid">
+                  {[
+                    { id: '720p', name: '720P', desc: '1280×720 高清' },
+                    { id: '1080p', name: '1080P', desc: '1920×1080 全高清' },
+                  ].map(opt => (
+                    <div
+                      key={opt.id}
+                      className={`style-card ${params.resolution === opt.id ? 'selected' : ''}`}
+                      onClick={() => onParamChange('resolution', opt.id)}
+                    >
+                      <div className="style-card-check">{params.resolution === opt.id ? '✓' : ''}</div>
+                      <div className="style-card-name">{opt.name}</div>
+                      <div className="style-card-desc">{opt.desc}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="step-section">
+                <label className="step-label">运动模板（点击填充）</label>
+                <div className="template-chips">
+                  {videoMotionTemplates.map(t => (
+                    <button
+                      key={t.label}
+                      className="template-chip"
+                      onClick={() => onParamChange('prompt', t.prompt)}
+                      title={t.prompt}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="step-section">
+                <label className="step-label">运动描述（可选）</label>
+                <input
+                  type="text"
+                  placeholder="描述图片中该如何运动，如：花瓣随风飘落、人物转头微笑..."
+                  value={params.prompt}
+                  onChange={(e) => onParamChange('prompt', e.target.value)}
+                  className="negative-input"
+                />
+              </div>
+
+              <div className="tool-actions">
+                <button className="btn-primary btn-large" onClick={onGenerate}>
+                  🎬 开始生成视频
+                </button>
+              </div>
             </div>
-            <div className="info-details">
-              <span>📐 尺寸: {originalImageSize.width} × {originalImageSize.height}</span>
-              <span>📐 比例: {originalImageSize.ratio}</span>
+          )}
+
+          {isGenerating && (
+            <div className="progress-section">
+              <div className="progress-bar">
+                <div className="progress-fill" style={{ width: `${progress}%` }} />
+              </div>
+              <span className="progress-text">{progress}%</span>
+              <p className="progress-hint">AI 正在生成视频，请稍候...</p>
             </div>
-            <label className="lock-ratio-toggle">
-              <input 
-                type="checkbox" 
-                checked={lockOriginalRatio} 
-                onChange={(e) => onLockRatioChange(e.target.checked)}
+          )}
+
+          {result && !isGenerating && (
+            <div className="generate-section">
+              <p className="generate-hint">✅ 视频生成完成！</p>
+              <button className="btn-primary btn-large" onClick={() => setStep(3)}>
+                👀 查看视频 →
+              </button>
+            </div>
+          )}
+
+          {error && (
+            <div className="error-section">
+              <p className="error-text">❌ {error}</p>
+              <button className="btn-secondary" onClick={onGenerate}>重试</button>
+            </div>
+          )}
+        </div>
+
+        <div className="tool-footer">
+          {!isGenerating && (
+            <button className="btn-back" onClick={() => setStep(1)}>← 返回</button>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Step 3: 结果预览
+  if (step === 3) {
+    return (
+      <div className="tool-panel">
+        <div className="tool-header">
+          <h2>图生视频</h2>
+          <span className="tool-step">步骤 3/3 · 预览保存</span>
+        </div>
+
+        <div className="tool-body">
+          {result && (
+            <div className="result-section">
+              <video
+                className="result-video"
+                src={result.url}
+                controls
+                autoPlay
+                loop
+                muted
               />
-              <span>🔒 保持原始图像比例</span>
-            </label>
-            <p className="lock-hint">开启后，视频生成时将严格保持原始图像的比例、构图和视觉完整性</p>
-          </div>
-        )}
-        <div className="video-setting">
-          <label>📐 视频适配模式</label>
-          <div className="fit-mode-grid">
-            <button 
-              className={`fit-mode-btn ${videoFitMode === 'contain' ? 'selected' : ''}`}
-              onClick={() => onFitModeChange('contain')}
-            >
-              <span className="fit-icon">📐</span>
-              <span className="fit-name">保持比例</span>
-              <span className="fit-desc">完整显示，可能有黑边</span>
-            </button>
-            <button 
-              className={`fit-mode-btn ${videoFitMode === 'cover' ? 'selected' : ''}`}
-              onClick={() => onFitModeChange('cover')}
-            >
-              <span className="fit-icon">🎯</span>
-              <span className="fit-name">填充裁剪</span>
-              <span className="fit-desc">填满画面，可能裁剪边缘</span>
-            </button>
-            <button 
-              className={`fit-mode-btn ${videoFitMode === 'stretch' ? 'selected' : ''}`}
-              onClick={() => onFitModeChange('stretch')}
-              disabled={lockOriginalRatio}
-            >
-              <span className="fit-icon">↔️</span>
-              <span className="fit-name">拉伸</span>
-              <span className="fit-desc">拉伸适应画面（已禁用）</span>
-            </button>
-          </div>
-          {lockOriginalRatio && videoFitMode === 'stretch' && (
-            <p className="warning-text">⚠️ 保持比例模式下不允许拉伸</p>
+              <div className="result-actions">
+                <button className="btn-primary" onClick={() => onDownload(result.url)}>
+                  📥 下载视频
+                </button>
+                <button className="btn-secondary" onClick={() => { onReset(); setStep(1); }}>
+                  🔄 重新生成
+                </button>
+              </div>
+            </div>
           )}
         </div>
-        <div className="video-setting">
-          <label>📺 视频清晰度</label>
-          <div className="resolution-grid">
-            {videoResolutions.map(res => (
-              <button 
-                key={res.id}
-                className={`resolution-btn ${videoResolution === res.id ? 'selected' : ''}`}
-                onClick={() => onResolutionChange(res.id)}
-              >
-                <span className="res-name">{res.name}</span>
-                <span className="res-desc">{res.description}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="video-setting">
-          <label>📐 画面比例</label>
-          <div className="ratio-grid">
-            {videoAspectRatios.map(ratio => (
-              <button 
-                key={ratio.id}
-                className={`ratio-btn ${videoAspectRatio === ratio.id ? 'selected' : ''} ${lockOriginalRatio ? 'locked' : ''}`}
-                onClick={() => {
-                  if (!lockOriginalRatio) {
-                    onAspectRatioChange(ratio.id)
-                  }
-                }}
-                disabled={lockOriginalRatio}
-              >
-                <span className="ratio-name">{ratio.name}</span>
-                <span className="ratio-desc">{ratio.description}</span>
-              </button>
-            ))}
-          </div>
-          {lockOriginalRatio && (
-            <p className="lock-hint">🔒 已锁定为原始图像比例（{originalImageSize?.ratio || '-'}）</p>
-          )}
+
+        <div className="tool-footer">
+          <button className="btn-back" onClick={() => setStep(2)}>← 返回</button>
         </div>
       </div>
-      <div className="step-actions">
-        <span className="step-hint">
-          {uploadedImage ? '✓ 已准备好' : '请上传图片'}
-        </span>
-        <button className="next-btn" onClick={onNextStep} disabled={!uploadedImage}>
-          进入步骤2 →
-        </button>
-      </div>
-    </div>
-  )
+    )
+  }
+
+  return null
 }
 
 export default ImageToVideoTool
