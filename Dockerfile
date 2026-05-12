@@ -3,7 +3,7 @@ FROM node:20.18-alpine AS client-build
 
 WORKDIR /app/client
 
-COPY client/package*.json ./
+COPY client/package.json ./
 RUN npm install --legacy-peer-deps
 
 COPY client/ ./
@@ -14,7 +14,7 @@ FROM node:20.18-alpine AS server-build
 
 WORKDIR /app/server
 
-COPY server/package*.json ./
+COPY server/package.json ./
 RUN npm install --legacy-peer-deps --omit=dev
 
 COPY server/ ./
