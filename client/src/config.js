@@ -13,7 +13,7 @@ if (isTestEnvironment) {
     const getImportMeta = new Function('return import.meta')();
     API_BASE_URL = getImportMeta.env.VITE_API_URL || 'http://localhost:3001';
     OLLAMA_BASE_URL = getImportMeta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
-  } catch (e) {
+  } catch {
     API_BASE_URL = 'http://localhost:3001';
     OLLAMA_BASE_URL = 'http://localhost:11434';
   }

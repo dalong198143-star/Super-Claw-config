@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react'
 import './ComicDramaTool.css'
 import config from '../../config'
 
-// 示例分镜数据结构
+// 示例分镜数据结构（保留作为参考）
+/*
 const sampleStoryboard = {
   episode_id: 1,
   title: "急诊室的故事",
@@ -49,13 +50,9 @@ const sampleStoryboard = {
     }
   ]
 }
+*/
 
 function ComicDramaTool({
-  onGenerate,
-  isGenerating,
-  progress,
-  result,
-  error,
   onDownload,
   onReset,
 }) {
@@ -64,7 +61,7 @@ function ComicDramaTool({
   const [storyboard, setStoryboard] = useState(null)
   const [characters, setCharacters] = useState([])
   const [generatingStoryboard, setGeneratingStoryboard] = useState(false)
-  const [currentSceneIndex, setCurrentSceneIndex] = useState(0)
+  const [currentSceneIndex] = useState(0)
   const [generatedAssets, setGeneratedAssets] = useState({})
   
   // 批量生成状态
@@ -87,10 +84,10 @@ function ComicDramaTool({
   const [showCostPreview, setShowCostPreview] = useState(false)
   
   // 断点续传状态
-  const [projectId, setProjectId] = useState(() => {
+  const [projectId] = useState(() => {
     return 'comic-drama-' + Date.now()
   })
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
+  const [autoSaveEnabled] = useState(true)
   
   // 快速模式开关（3步简化流程）
   const [quickMode, setQuickMode] = useState(false)
@@ -132,6 +129,7 @@ function ComicDramaTool({
       const saved = localStorage.getItem(key)
       if (saved) {
         const { timestamp, data } = JSON.parse(saved)
+        // eslint-disable-next-line react-hooks/purity
         const age = Date.now() - timestamp
         const hours = Math.floor(age / (1000 * 60 * 60))
         
@@ -183,6 +181,68 @@ function ComicDramaTool({
       }
     }
   }
+
+  // 快速模式：自动执行前置步骤
+  useEffect(() => {
+    if (step === 4 && quickMode && !storyboard && !batchGenerating) {
+      const autoGenerate = async () => {
+        setBatchGenerating(true)
+        try {
+          console.log('[QuickMode] 开始自动分集...')
+          const episodeResponse = await retryWithBackoff(async () => {
+            const res = await fetch(`${config.API_BASE_URL}/api/comic-drama/analyze-episodes`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                script: scriptText,
+                options: { targetDurationPerEpisode: 300, maxEpisodes: 5, style: 'modern_anime' }
+              }),
+            })
+            if (!res.ok) throw new Error('分集失败')
+            return await res.json()
+          }, 3, 2000)
+
+          console.log('[QuickMode] 分集完成:', episodeResponse.episodes.length, '集')
+          setEpisodes(episodeResponse.episodes)
+          setSelectedEpisodes(episodeResponse.episodes.map(ep => ep.episode_number))
+
+          console.log('[QuickMode] 开始生成分镜...')
+          const storyboardResponse = await retryWithBackoff(async () => {
+            const res = await fetch(`${config.API_BASE_URL}/api/comic-drama/generate-episodes-storyboard`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                script: scriptText,
+                episodes: [episodeResponse.episodes[0]],
+                options: { style: 'modern_anime' }
+              }),
+            })
+            if (!res.ok) throw new Error('分镜生成失败')
+            return await res.json()
+          }, 3, 2000)
+
+          if (storyboardResponse.results && storyboardResponse.results[0].success) {
+            setStoryboard(storyboardResponse.results[0].storyboard)
+            console.log('[QuickMode] 分镜生成完成')
+            const uniqueChars = new Set()
+            storyboardResponse.results[0].storyboard.scenes.forEach(scene => {
+              scene.characters.forEach(char => uniqueChars.add(char))
+            })
+            setCharacters(Array.from(uniqueChars).map(name => ({
+              name, refImage: null, loraModel: null,
+            })))
+          }
+
+          setBatchGenerating(false)
+        } catch (error) {
+          console.error('[QuickMode] 自动化流程失败:', error)
+          setBatchError(`快速模式失败: ${error.message}`)
+          setBatchGenerating(false)
+        }
+      }
+      autoGenerate()
+    }
+  }, [step, quickMode, storyboard, batchGenerating, scriptText])
 
   // Step 1: 导入剧本
   if (step === 1) {
@@ -685,7 +745,7 @@ function ComicDramaTool({
               </div>
               
               <div className="storyboard-tree">
-                {storyboard.scenes.map((scene, idx) => (
+                {storyboard.scenes.map((scene, _idx) => (
                   <div key={scene.scene_id} className="scene-node">
                     <div className="scene-header">
                       <span className="scene-id">{scene.scene_id}</span>
@@ -947,87 +1007,10 @@ function ComicDramaTool({
     }
   }
 
-  // Step 4: 批量生成图像
   if (step === 4) {
-    // 快速模式：自动执行前置步骤
-    useEffect(() => {
-      if (quickMode && !storyboard && !batchGenerating) {
-        // 自动执行智能分集和分镜生成
-        const autoGenerate = async () => {
-          setBatchGenerating(true)
-          
-          try {
-            console.log('[QuickMode] 开始自动分集...')
-            
-            // Step 1: 智能分集
-            const episodeResponse = await retryWithBackoff(async () => {
-              const res = await fetch(`${config.API_BASE_URL}/api/comic-drama/analyze-episodes`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  script: scriptText,
-                  options: {
-                    targetDurationPerEpisode: 300,
-                    maxEpisodes: 5, // 快速模式限制为5集
-                    style: 'modern_anime',
-                  }
-                }),
-              })
-              
-              if (!res.ok) throw new Error('分集失败')
-              return await res.json()
-            }, 3, 2000)
-            
-            console.log('[QuickMode] 分集完成:', episodeResponse.episodes.length, '集')
-            setEpisodes(episodeResponse.episodes)
-            setSelectedEpisodes(episodeResponse.episodes.map(ep => ep.episode_number))
-            
-            // Step 2: 批量生成分镜（只生成第一集）
-            console.log('[QuickMode] 开始生成分镜...')
-            const storyboardResponse = await retryWithBackoff(async () => {
-              const res = await fetch(`${config.API_BASE_URL}/api/comic-drama/generate-episodes-storyboard`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  script: scriptText,
-                  episodes: [episodeResponse.episodes[0]], // 只生成第一集
-                  options: { style: 'modern_anime' }
-                }),
-              })
-              
-              if (!res.ok) throw new Error('分镜生成失败')
-              return await res.json()
-            }, 3, 2000)
-            
-            if (storyboardResponse.results && storyboardResponse.results[0].success) {
-              setStoryboard(storyboardResponse.results[0].storyboard)
-              console.log('[QuickMode] 分镜生成完成')
-              
-              // 提取角色
-              const uniqueChars = new Set()
-              storyboardResponse.results[0].storyboard.scenes.forEach(scene => {
-                scene.characters.forEach(char => uniqueChars.add(char))
-              })
-              setCharacters(Array.from(uniqueChars).map(name => ({
-                name,
-                refImage: null,
-                loraModel: null,
-              })))
-            }
-            
-            // 继续执行图像生成
-            await handleBatchGenerate()
-          } catch (error) {
-            console.error('[QuickMode] 自动化流程失败:', error)
-            setBatchError(`快速模式失败: ${error.message}`)
-            setBatchGenerating(false)
-          }
-        }
-        
-        autoGenerate()
-      }
-    }, [quickMode, storyboard])
-    
+    const totalShots = storyboard ? storyboard.scenes.reduce((sum, s) => sum + s.shots.length, 0) : 0
+    const completedShots = Object.keys(generatedAssets).length
+
     return (
       <div className="tool-panel comic-drama-panel">
         <div className="tool-header">
@@ -1059,7 +1042,7 @@ function ComicDramaTool({
                   {scene.scene_id} - {scene.description.substring(0, 40)}...
                 </div>
                 <div className="shots-grid">
-                  {scene.shots.map((shot, shotIdx) => {
+                  {scene.shots.map((shot, _shotIdx) => {
                     const assetKey = `${scene.scene_id}_${shot.shot_id}`
                     const isGenerated = generatedAssets[assetKey]
                     

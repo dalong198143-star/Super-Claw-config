@@ -16,8 +16,10 @@ function CreationHistory({ onLoadCreation }) {
   const [filterTool, setFilterTool] = useState('all')
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     const saved = localStorage.getItem(HISTORY_KEY)
     if (saved) setHistory(JSON.parse(saved))
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
   const deleteRecord = (id) => {

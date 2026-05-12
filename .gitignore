@@ -45,6 +45,9 @@ ssl/*.key
 # Docker
 .docker/
 
+# Claude Code
+.claude/
+
 # Temporary files
 tmp/
 temp/

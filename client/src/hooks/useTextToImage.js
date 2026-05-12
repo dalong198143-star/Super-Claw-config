@@ -38,13 +38,13 @@ export function useTextToImage() {
       if (data.length > 0 && !selectedStyle) {
         setSelectedStyle(data[0].id);
       }
-    } catch (e) {
-      console.error('加载风格失败:', e);
+    } catch {
+      console.error('加载风格失败');
     }
   }, []);
 
   useEffect(() => {
-    fetchStyles();
+    fetchStyles(); // eslint-disable-line react-hooks/set-state-in-effect
   }, [fetchStyles]);
 
   // 用 DeepSeek 优化提示词
@@ -63,7 +63,7 @@ export function useTextToImage() {
       } else if (data.error) {
         alert(data.error);
       }
-    } catch (e) {
+    } catch {
       alert('提示词优化失败，请检查 DeepSeek API 配置');
     }
     setOptimizingPrompt(false);

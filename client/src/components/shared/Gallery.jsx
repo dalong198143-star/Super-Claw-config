@@ -31,12 +31,14 @@ function Gallery({ onSelectTool }) {
   const [history, setHistory] = useState([])
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
     const saved = localStorage.getItem('creation_history')
     if (saved) {
       try {
         setHistory(JSON.parse(saved).slice(0, 8))
-      } catch {}
+      } catch { /* ignore parse errors */ }
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [])
 
   const allItems = [...samples, ...history]

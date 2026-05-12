@@ -27,8 +27,7 @@ function ImageToVideoTool({
   onAspectRatioChange,
   onImageUpload,
   onRemoveImage,
-  onNextStep,
-  hasInput
+  onNextStep
 }) {
   return (
     <div className="workflow-content">

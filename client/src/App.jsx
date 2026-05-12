@@ -76,19 +76,15 @@ function App() {
   const [comicDramaProgress, setComicDramaProgress] = useState(0)
   const [comicDramaResult, setComicDramaResult] = useState(null)
   const [comicDramaError, setComicDramaError] = useState(null)
-  const [comicDramaParams, setComicDramaParams] = useState({
+  const [comicDramaParams] = useState({
     script: '',
     episodeId: 1,
     style: 'modern_anime',
   })
-  const [comicDramaStoryboard, setComicDramaStoryboard] = useState(null)
-  const [comicDramaCharacters, setComicDramaCharacters] = useState(null)
+  const [, setComicDramaStoryboard] = useState(null)
+  const [, setComicDramaCharacters] = useState(null)
 
   // 初始化 - 检测 AI 服务
-  useEffect(() => {
-    detectAIProvider()
-  }, [])
-
   const detectAIProvider = async () => {
     try {
       const res = await fetch(`${config.API_BASE_URL}/api/deepseek/chat`, {
@@ -97,9 +93,15 @@ function App() {
         body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }] }),
       })
       if (res.ok) { setAiProvider('deepseek'); return }
-    } catch (e) { /* deepseek 不可用 */ }
+    } catch { /* deepseek 不可用 */ }
     setAiProvider('cloud')
   }
+
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    detectAIProvider()
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [])
 
   // ============================================================
   // 图生视频

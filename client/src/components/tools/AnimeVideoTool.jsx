@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { imageTemplates, videoMotionTemplates } from '../../data/promptTemplates'
+import { videoMotionTemplates } from '../../data/promptTemplates'
 import './TextToImageTool.css'
 
 function AnimeVideoTool({
