@@ -1,31 +1,31 @@
 # 多阶段构建 - 客户端
-FROM node:20.18-alpine AS client-build
+FROM node:20.18-slim AS client-build
 
 WORKDIR /app/client
 
-COPY client/package.json ./
-RUN npm install --legacy-peer-deps
+COPY client/package*.json ./
+RUN npm ci
 
 COPY client/ ./
 RUN npm run build
 
 # 服务器端构建
-FROM node:20.18-alpine AS server-build
+FROM node:20.18-slim AS server-build
 
 WORKDIR /app/server
 
-COPY server/package.json ./
-RUN npm install --legacy-peer-deps --omit=dev
+COPY server/package*.json ./
+RUN npm ci --omit=dev
 
 COPY server/ ./
 
 # 最终镜像
-FROM node:20.18-alpine
+FROM node:20.18-slim
 
 WORKDIR /app
 
 # 安装运行时依赖
-RUN apk add --no-cache dumb-init curl
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init curl && rm -rf /var/lib/apt/lists/*
 
 # 复制服务器文件和客户端构建产物
 COPY --from=server-build /app/server ./server
