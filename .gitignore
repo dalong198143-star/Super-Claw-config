@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 **/node_modules/
-package-lock.json
+# package-lock.json — committed for CI reproducibility
 
 # Build outputs
 dist/
