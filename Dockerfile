@@ -3,8 +3,8 @@ FROM node:20.18-slim AS client-build
 
 WORKDIR /app/client
 
-COPY client/package*.json ./
-RUN npm ci
+COPY client/package.json ./
+RUN npm install --legacy-peer-deps
 
 COPY client/ ./
 RUN npm run build
@@ -14,8 +14,8 @@ FROM node:20.18-slim AS server-build
 
 WORKDIR /app/server
 
-COPY server/package*.json ./
-RUN npm ci --omit=dev
+COPY server/package.json ./
+RUN npm install --legacy-peer-deps --omit=dev
 
 COPY server/ ./
 
