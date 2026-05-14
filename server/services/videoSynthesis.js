@@ -383,12 +383,12 @@ async function generateDialogueAudio(dialogues, options) {
 
   try {
     const { batchGenerateSpeech } = await import('./tts.js');
-    const results = await batchGenerateSpeech(dialogues, {
+    const ttsResult = await batchGenerateSpeech(dialogues, {
       engine: options.ttsEngine || 'azure',
       voice: options.ttsVoice,
     });
 
-    const successResults = results.filter(r => r.success);
+    const successResults = ttsResult.results.filter(r => r.success);
     if (successResults.length === 0) {
       console.warn('[FFmpeg] TTS全部失败，跳过音频');
       return null;
@@ -433,8 +433,7 @@ async function generateDialogueAudio(dialogues, options) {
     return outputFile;
   } catch (error) {
     console.error('[FFmpeg] TTS配音生成失败:', error.message);
-    fs.writeFileSync(outputFile, '');
-    return outputFile;
+    return null;
   }
 }
 
