@@ -263,16 +263,22 @@ export async function synthesizeComicVideo(projectData) {
         dialogueAudio = await generateDialogueAudio(dialogues, options);
       }
 
-      console.log('[FFmpeg] Step 3: 混合音频...');
       const audioTracks = [];
-      if (hasDialogues) audioTracks.push({ path: dialogueAudio, volume: 1.0 });
+      if (hasDialogues && dialogueAudio) audioTracks.push({ path: dialogueAudio, volume: 1.0 });
       if (hasBgm) audioTracks.push({ path: bgm, volume: 0.3 });
-      const mixedAudio = audioTracks.length > 1
-        ? await mixAudioTracks(audioTracks, options)
-        : audioTracks[0].path;
 
-      console.log('[FFmpeg] Step 4: 添加音频...');
-      videoWithAudio = await addAudioToVideo(baseVideo, mixedAudio, options);
+      if (audioTracks.length > 0) {
+        console.log('[FFmpeg] Step 3: 混合音频...');
+        const mixedAudio = audioTracks.length > 1
+          ? await mixAudioTracks(audioTracks, options)
+          : audioTracks[0].path;
+
+        console.log('[FFmpeg] Step 4: 添加音频...');
+        videoWithAudio = await addAudioToVideo(baseVideo, mixedAudio, options);
+      } else {
+        console.log('[FFmpeg] Step 2-4: 音频生成失败，使用无声视频');
+        videoWithAudio = baseVideo;
+      }
     } else {
       console.log('[FFmpeg] Step 2-4: 无音频，跳过');
     }
@@ -371,9 +377,8 @@ async function generateDialogueAudio(dialogues, options) {
   }
 
   if (!dialogues || dialogues.length === 0) {
-    console.log('[FFmpeg] 无台词，创建静音占位');
-    fs.writeFileSync(outputFile, '');
-    return outputFile;
+    console.log('[FFmpeg] 无台词，跳过音频');
+    return null;
   }
 
   try {
@@ -385,9 +390,8 @@ async function generateDialogueAudio(dialogues, options) {
 
     const successResults = results.filter(r => r.success);
     if (successResults.length === 0) {
-      console.warn('[FFmpeg] TTS全部失败，使用静音占位');
-      fs.writeFileSync(outputFile, '');
-      return outputFile;
+      console.warn('[FFmpeg] TTS全部失败，跳过音频');
+      return null;
     }
 
     const tempDir = path.join(outputDir, `tts-${timestamp}`);
