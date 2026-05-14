@@ -20,7 +20,7 @@ const config = {
   IMAGE_PROVIDER: process.env.IMAGE_PROVIDER || 'pollinations',
 
   // Pollinations.ai（免费，无需 API Key）
-  POLLINATIONS_IMAGE_MODEL: process.env.POLLINATIONS_IMAGE_MODEL || 'flux',
+  POLLINATIONS_IMAGE_MODEL: process.env.POLLINATIONS_IMAGE_MODEL || 'turbo',
 
   // 硅基流动 API
   SILICONFLOW_API_KEY: process.env.SILICONFLOW_API_KEY || '',

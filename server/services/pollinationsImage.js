@@ -2,6 +2,7 @@ import fetch from 'node-fetch';
 
 const POLLINATIONS_API = 'https://image.pollinations.ai/prompt';
 const REQUEST_TIMEOUT_MS = 30000;
+const MAX_RETRIES = 3;
 
 /**
  * 带超时的 fetch
@@ -10,15 +11,14 @@ async function fetchWithTimeout(url, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res;
+    return await fetch(url, { signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
 }
 
 /**
- * 生成单张图像（使用 Pollinations.ai 免费 API）
+ * 生成单张图像（带重试 + 指数退避）
  */
 export async function generatePollinationsImage(prompt, options = {}) {
   const width = options.width || 512;
@@ -29,30 +29,51 @@ export async function generatePollinationsImage(prompt, options = {}) {
   const encodedPrompt = encodeURIComponent(prompt.trim());
   const url = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&model=${model}&nologo=true`;
 
-  console.log(`[Pollinations] 生成图像 (${model} ${width}x${height}): ${prompt.slice(0, 50)}...`);
+  let lastError;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        const delay = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s
+        console.log(`[Pollinations] 重试 ${attempt}/${MAX_RETRIES - 1}, 等待 ${delay / 1000}s...`);
+        await sleep(delay);
+      }
 
-  const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
+      console.log(`[Pollinations] ${attempt > 0 ? '重试' : '生成'} (${model} ${width}x${height}): ${prompt.slice(0, 50)}...`);
+      const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
 
-  if (!res.ok) {
-    throw new Error(`Pollinations API 错误: ${res.status}`);
+      if (res.status === 429) {
+        throw new Error('RATE_LIMIT');
+      }
+
+      if (!res.ok) {
+        throw new Error(`Pollinations API 错误: ${res.status}`);
+      }
+
+      const buffer = await res.arrayBuffer();
+      if (buffer.byteLength < 100) {
+        throw new Error('生成失败：返回图片数据异常');
+      }
+
+      const contentType = res.headers.get('content-type') || 'image/jpeg';
+      const base64 = Buffer.from(buffer).toString('base64');
+      const dataUrl = `data:${contentType};base64,${base64}`;
+
+      return {
+        url: dataUrl,
+        seed,
+        cost: 0,
+        provider: 'pollinations',
+        retries: attempt,
+      };
+    } catch (error) {
+      lastError = error;
+      if (error.message === 'RATE_LIMIT' && attempt < MAX_RETRIES - 1) {
+        continue;
+      }
+      throw error;
+    }
   }
-
-  const buffer = await res.arrayBuffer();
-  if (buffer.byteLength < 100) {
-    throw new Error('生成失败：返回图片数据异常');
-  }
-
-  const contentType = res.headers.get('content-type') || 'image/jpeg';
-  const base64 = Buffer.from(buffer).toString('base64');
-  const dataUrl = `data:${contentType};base64,${base64}`;
-
-  return {
-    url: dataUrl,
-    seed,
-    cost: 0,
-    provider: 'pollinations',
-    generationTime: 0,
-  };
+  throw lastError || new Error('Max retries exceeded');
 }
 
 /**
@@ -88,8 +109,9 @@ export async function batchGeneratePollinations(shots, options = {}, onProgress 
 
       if (onProgress) onProgress(i + 1, total, shotId);
 
+      // 限流保护：每张图间隔 3 秒
       if (i < total - 1) {
-        await sleep(500);
+        await sleep(3000);
       }
     } catch (error) {
       console.error(`[Pollinations] 镜头 ${shotId} 生成失败:`, error.message);
@@ -100,6 +122,11 @@ export async function batchGeneratePollinations(shots, options = {}, onProgress 
         timestamp: new Date().toISOString(),
       });
       if (onProgress) onProgress(i + 1, total, shotId);
+
+      // 失败后也稍等一下再继续
+      if (i < total - 1) {
+        await sleep(2000);
+      }
     }
   }
 
