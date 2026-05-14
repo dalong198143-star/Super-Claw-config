@@ -1,52 +1,58 @@
 import fetch from 'node-fetch';
 
 const POLLINATIONS_API = 'https://image.pollinations.ai/prompt';
+const REQUEST_TIMEOUT_MS = 30000;
+
+/**
+ * 带超时的 fetch
+ */
+async function fetchWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * 生成单张图像（使用 Pollinations.ai 免费 API）
- * @param {string} prompt - 英文提示词
- * @param {object} options - 配置选项
- * @returns {Promise<object>} 包含url的结果对象
  */
 export async function generatePollinationsImage(prompt, options = {}) {
   const width = options.width || 512;
   const height = options.height || 512;
   const seed = options.seed || Math.floor(Math.random() * 1000000);
-  const model = options.model || 'flux';
+  const model = options.model || 'turbo';
 
   const encodedPrompt = encodeURIComponent(prompt.trim());
   const url = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&model=${model}&nologo=true`;
 
-  console.log(`[Pollinations] 生成图像: ${prompt.slice(0, 60)}...`);
+  console.log(`[Pollinations] 生成图像 (${model} ${width}x${height}): ${prompt.slice(0, 50)}...`);
 
-  try {
-    const res = await fetch(url);
-    if (!res.ok) {
-      throw new Error(`Pollinations API 错误: ${res.status}`);
-    }
+  const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
 
-    // Pollinations 直接返回图片，需要下载为 buffer 来验证
-    const buffer = await res.arrayBuffer();
-    if (buffer.byteLength < 100) {
-      throw new Error('生成失败：返回图片数据异常');
-    }
-
-    // 转为 base64 data URL，避免外链失效
-    const contentType = res.headers.get('content-type') || 'image/jpeg';
-    const base64 = Buffer.from(buffer).toString('base64');
-    const dataUrl = `data:${contentType};base64,${base64}`;
-
-    return {
-      url: dataUrl,
-      seed,
-      cost: 0,
-      provider: 'pollinations',
-      generationTime: 0,
-    };
-  } catch (error) {
-    console.error('[Pollinations] 图像生成失败:', error.message);
-    throw error;
+  if (!res.ok) {
+    throw new Error(`Pollinations API 错误: ${res.status}`);
   }
+
+  const buffer = await res.arrayBuffer();
+  if (buffer.byteLength < 100) {
+    throw new Error('生成失败：返回图片数据异常');
+  }
+
+  const contentType = res.headers.get('content-type') || 'image/jpeg';
+  const base64 = Buffer.from(buffer).toString('base64');
+  const dataUrl = `data:${contentType};base64,${base64}`;
+
+  return {
+    url: dataUrl,
+    seed,
+    cost: 0,
+    provider: 'pollinations',
+    generationTime: 0,
+  };
 }
 
 /**
@@ -58,7 +64,7 @@ export async function batchGeneratePollinations(shots, options = {}, onProgress 
   }
 
   const total = shots.length;
-  console.log(`[Pollinations] 开始批量生成 ${total} 张图像（免费）...`);
+  console.log(`[Pollinations] 开始批量生成 ${total} 张图像（免费，模型: ${options.model || 'turbo'}）...`);
 
   const results = [];
   const errors = [];
@@ -82,9 +88,8 @@ export async function batchGeneratePollinations(shots, options = {}, onProgress 
 
       if (onProgress) onProgress(i + 1, total, shotId);
 
-      // Pollinations 免费 API 有速率限制，加延迟
       if (i < total - 1) {
-        await sleep(1500);
+        await sleep(500);
       }
     } catch (error) {
       console.error(`[Pollinations] 镜头 ${shotId} 生成失败:`, error.message);

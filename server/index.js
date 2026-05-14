@@ -399,8 +399,8 @@ app.post('/api/comic-drama/batch-generate-images', async (req, res) => {
       const pollinationsOptions = {
         ...options,
         model: options?.model || config.POLLINATIONS_IMAGE_MODEL,
-        width: options?.width || 1024,
-        height: options?.height || 1024,
+        width: options?.width || 512,
+        height: options?.height || 512,
       };
       result = await batchGeneratePollinations(shotList, pollinationsOptions, onProgress);
     } else {
@@ -685,6 +685,175 @@ function calculateVideoDuration(storyboard) {
 }
 
 // ============================================================
+// AI视频剪辑服务
+// ============================================================
+
+// 解析自然语言剪辑指令
+app.post('/api/video-editor/parse-instruction', async (req, res) => {
+  const { instruction, videoInfo } = req.body;
+
+  if (!instruction || !instruction.trim()) {
+    return res.status(400).json({ 
+      error: '请输入剪辑指令',
+      success: false 
+    });
+  }
+
+  try {
+    console.log('[API] 解析剪辑指令:', instruction.substring(0, 100));
+    const editingPlan = await parseEditingInstruction(instruction, videoInfo || {});
+    
+    res.json({
+      success: true,
+      editingPlan
+    });
+  } catch (e) {
+    console.error('[API] 解析剪辑指令错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false 
+    });
+  }
+});
+
+// 获取视频信息
+app.post('/api/video-editor/get-info', async (req, res) => {
+  const { videoPath } = req.body;
+
+  if (!videoPath) {
+    return res.status(400).json({ 
+      error: '请提供视频路径',
+      success: false 
+    });
+  }
+
+  try {
+    // 处理相对路径
+    const fullPath = videoPath.startsWith('/') 
+      ? path.join(__dirname, '..', videoPath)
+      : videoPath;
+    
+    const videoInfo = await getVideoInfo(fullPath);
+    
+    res.json({
+      success: true,
+      videoInfo
+    });
+  } catch (e) {
+    console.error('[API] 获取视频信息错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false 
+    });
+  }
+});
+
+// 执行视频剪辑
+app.post('/api/video-editor/execute', async (req, res) => {
+  const { videoPath, editingPlan } = req.body;
+
+  if (!videoPath || !editingPlan) {
+    return res.status(400).json({ 
+      error: '请提供视频路径和剪辑方案',
+      success: false 
+    });
+  }
+
+  try {
+    console.log('[API] 开始执行视频剪辑...');
+    
+    // 处理路径
+    const fullVideoPath = videoPath.startsWith('/') 
+      ? path.join(__dirname, '..', videoPath)
+      : videoPath;
+    
+    const outputDir = path.join(__dirname, '../uploads/video-editor');
+    
+    const resultPath = await executeVideoEdit(fullVideoPath, editingPlan, outputDir);
+    
+    // 生成访问URL
+    const filename = path.basename(resultPath);
+    const videoUrl = `/uploads/video-editor/${filename}`;
+    
+    console.log('[API] 视频剪辑完成:', videoUrl);
+    
+    res.json({
+      success: true,
+      videoUrl,
+      videoPath: resultPath,
+      editingPlan
+    });
+  } catch (e) {
+    console.error('[API] 视频剪辑错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false 
+    });
+  }
+});
+
+// 智能剔除废片
+app.post('/api/video-editor/remove-bad-footage', async (req, res) => {
+  const { videoPath, options } = req.body;
+
+  if (!videoPath) {
+    return res.status(400).json({ 
+      error: '请提供视频路径',
+      success: false 
+    });
+  }
+
+  try {
+    console.log('[API] 开始分析废片...');
+    
+    const fullVideoPath = videoPath.startsWith('/') 
+      ? path.join(__dirname, '..', videoPath)
+      : videoPath;
+    
+    const analysis = await removeBadFootage(fullVideoPath, options || {});
+    
+    console.log('[API] 废片分析完成');
+    
+    res.json({
+      success: true,
+      analysis
+    });
+  } catch (e) {
+    console.error('[API] 废片分析错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false 
+    });
+  }
+});
+
+// 估算剪辑成本
+app.post('/api/video-editor/estimate-cost', (req, res) => {
+  const { videoDuration } = req.body;
+
+  if (!videoDuration || videoDuration <= 0) {
+    return res.status(400).json({ 
+      error: '请提供有效的视频时长',
+      success: false 
+    });
+  }
+
+  try {
+    const estimate = estimateEditingCost(videoDuration);
+    res.json({
+      success: true,
+      ...estimate
+    });
+  } catch (e) {
+    console.error('[API] 成本估算错误:', e.message);
+    res.status(500).json({ 
+      error: e.message,
+      success: false 
+    });
+  }
+});
+
+// ============================================================
 // 文件上传
 // ============================================================
 app.post('/api/upload', upload.single('file'), (req, res) => {
@@ -733,6 +902,10 @@ const server = app.listen(PORT, () => {
   console.log(`批量图像生成: ${config.SILICONFLOW_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
   console.log(`TTS配音服务: ${config.AZURE_TTS_KEY || config.ELEVENLABS_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
   console.log(`FFmpeg视频合成: 待检测`);
+  console.log(`AI视频剪辑服务: ${config.DEEPSEEK_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
+  console.log(`✓ 支持自然语言剪辑指令`);
+  console.log(`✓ 智能废片剔除`);
+  console.log(`✓ 相比专业软件月费$60，可节省大量成本`);
 });
 
 // 优雅关闭
