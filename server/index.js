@@ -13,10 +13,18 @@ import { textToImage as sfTextToImage, submitImageToVideo, getVideoStatus } from
 import { optimizePrompt, chat } from './services/deepseek.js';
 import { generateStoryboard, optimizeShotPrompt, extractCharacters } from './services/storyboard.js';
 import { batchGenerateImages, estimateCost } from './services/comicImage.js';
+import { batchGeneratePollinations } from './services/pollinationsImage.js';
 import { batchGenerateSpeech, estimateTTSCost } from './services/tts.js';
 import { synthesizeComicVideo, checkFFmpeg } from './services/videoSynthesis.js';
 import { extractSubtitlesFromStoryboard } from './services/subtitle.js';
 import { analyzeAndSplitEpisodes, generateEpisodesStoryboard, estimateEpisodeSplitCost } from './services/episodeSplit.js';
+import { 
+  parseEditingInstruction, 
+  getVideoInfo, 
+  executeVideoEdit, 
+  removeBadFootage, 
+  estimateEditingCost 
+} from './services/videoEditor.js';
 
 const app = express();
 const PORT = config.PORT;
@@ -351,7 +359,7 @@ app.post('/api/comic-drama/batch-generate-images', async (req, res) => {
   const { shots, options } = req.body;
 
   if (!shots || !Array.isArray(shots) || shots.length === 0) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: '请提供镜头列表',
       success: false,
     });
@@ -359,22 +367,23 @@ app.post('/api/comic-drama/batch-generate-images', async (req, res) => {
 
   // 限制单次批量生成数量（避免资源耗尽）
   if (shots.length > 50) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       error: '单次最多生成50张图像，请分批处理',
       success: false,
     });
   }
 
   try {
-    console.log(`[API] 开始批量生成 ${shots.length} 张图像...`);
-    
+    const provider = options?.provider || config.IMAGE_PROVIDER || 'pollinations';
+    console.log(`[API] 开始批量生成 ${shots.length} 张图像 (provider: ${provider})...`);
+
     // 提取所有镜头的prompt和shot_id
     const shotList = shots.map(shot => ({
       shot_id: shot.shot_id || shot.shotId,
       prompt: shot.prompt,
     }));
 
-    // 进度回调（通过Server-Sent Events实现实时推送会更优，这里先使用简单方式）
+    // 进度回调
     let lastProgress = 0;
     const onProgress = (current, total, shotId) => {
       const progress = Math.round((current / total) * 100);
@@ -384,19 +393,33 @@ app.post('/api/comic-drama/batch-generate-images', async (req, res) => {
       }
     };
 
-    // 执行批量生成
-    const result = await batchGenerateImages(shotList, options || {}, onProgress);
+    // 根据 provider 选择服务
+    let result;
+    if (provider === 'pollinations') {
+      const pollinationsOptions = {
+        ...options,
+        model: options?.model || config.POLLINATIONS_IMAGE_MODEL,
+        width: options?.width || 1024,
+        height: options?.height || 1024,
+      };
+      result = await batchGeneratePollinations(shotList, pollinationsOptions, onProgress);
+    } else {
+      result = await batchGenerateImages(shotList, options || {}, onProgress);
+    }
 
     console.log(`[API] 批量生成完成: 成功 ${result.successCount}, 失败 ${result.failCount}`);
 
     res.json({
       success: true,
       ...result,
-      costEstimate: estimateCost(shots.length),
+      provider,
+      costEstimate: provider === 'pollinations'
+        ? { shotCount: shots.length, costPerImage: 0, totalCost: '0.00', currency: 'CNY', note: 'Pollinations.ai 免费' }
+        : estimateCost(shots.length),
     });
   } catch (e) {
     console.error('[API] 批量生成错误:', e.message);
-    res.status(500).json({ 
+    res.status(500).json({
       error: e.message,
       success: false,
     });
@@ -702,6 +725,7 @@ app.use((req, res) => {
 
 const server = app.listen(PORT, () => {
   console.log(`AI漫剧创作平台 后端服务: http://localhost:${PORT}`);
+  console.log(`图像生成提供商: ${config.IMAGE_PROVIDER === 'pollinations' ? 'Pollinations.ai (免费) ✓' : '硅基流动 (付费)'}`);
   console.log(`文生图 (硅基流动): ${config.SILICONFLOW_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
   console.log(`图生视频 (硅基流动): ${config.SILICONFLOW_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);
   console.log(`DeepSeek API: ${config.DEEPSEEK_API_KEY ? '已配置 ✓' : '未配置 ✗'}`);

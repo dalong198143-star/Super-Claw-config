@@ -16,6 +16,12 @@ const config = {
   // 图生视频模型
   REPLICATE_IMG2VIDEO_MODEL: process.env.REPLICATE_IMG2VIDEO_MODEL || 'stability-ai/stable-video-diffusion:3f0457e4619daac51203dedb472816fd4af51f3149fa7a9e0b5ffcf1b8172438',
 
+  // 图像生成提供商: pollinations (免费) | siliconflow (付费)
+  IMAGE_PROVIDER: process.env.IMAGE_PROVIDER || 'pollinations',
+
+  // Pollinations.ai（免费，无需 API Key）
+  POLLINATIONS_IMAGE_MODEL: process.env.POLLINATIONS_IMAGE_MODEL || 'flux',
+
   // 硅基流动 API
   SILICONFLOW_API_KEY: process.env.SILICONFLOW_API_KEY || '',
   SILICONFLOW_TEXT2IMG_MODEL: process.env.SILICONFLOW_TEXT2IMG_MODEL || 'Qwen/Qwen-Image',
