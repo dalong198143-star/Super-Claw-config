@@ -1,5 +1,5 @@
 # 多阶段构建 - 客户端
-FROM node:20.18-slim AS client-build
+FROM node:22-slim AS client-build
 
 WORKDIR /app/client
 
@@ -10,7 +10,7 @@ COPY client/ ./
 RUN npm run build
 
 # 服务器端构建
-FROM node:20.18-slim AS server-build
+FROM node:22-slim AS server-build
 
 WORKDIR /app/server
 
@@ -20,7 +20,7 @@ RUN npm install --legacy-peer-deps --omit=dev
 COPY server/ ./
 
 # 最终镜像
-FROM node:20.18-slim
+FROM node:22-slim
 
 WORKDIR /app
 
