@@ -1,8 +1,7 @@
 import fetch from 'node-fetch';
 
 const POLLINATIONS_API = 'https://image.pollinations.ai/prompt';
-const REQUEST_TIMEOUT_MS = 30000;
-const MAX_RETRIES = 3;
+const REQUEST_TIMEOUT_MS = 15000;
 
 /**
  * 带超时的 fetch
@@ -18,9 +17,10 @@ async function fetchWithTimeout(url, timeoutMs) {
 }
 
 /**
- * 生成单张图像（带重试 + 指数退避）
+ * Pollinations.ai 生成图片（最多重试 1 次）
+ * 失败时自动降级到 picsum 占位图，保证流程不中断
  */
-export async function generatePollinationsImage(prompt, options = {}) {
+async function tryPollinations(prompt, options) {
   const width = options.width || 512;
   const height = options.height || 512;
   const seed = options.seed || Math.floor(Math.random() * 1000000);
@@ -29,55 +29,60 @@ export async function generatePollinationsImage(prompt, options = {}) {
   const encodedPrompt = encodeURIComponent(prompt.trim());
   const url = `${POLLINATIONS_API}/${encodedPrompt}?width=${width}&height=${height}&seed=${seed}&model=${model}&nologo=true`;
 
-  let lastError;
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       if (attempt > 0) {
-        const delay = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s
-        console.log(`[Pollinations] 重试 ${attempt}/${MAX_RETRIES - 1}, 等待 ${delay / 1000}s...`);
-        await sleep(delay);
+        console.log(`[Pollinations] 重试 (等待4s)...`);
+        await sleep(4000);
       }
-
-      console.log(`[Pollinations] ${attempt > 0 ? '重试' : '生成'} (${model} ${width}x${height}): ${prompt.slice(0, 50)}...`);
+      console.log(`[Pollinations] ${attempt > 0 ? '重试' : '请求'} (${model} ${width}x${height}): ${prompt.slice(0, 50)}...`);
       const res = await fetchWithTimeout(url, REQUEST_TIMEOUT_MS);
 
-      if (res.status === 429) {
-        throw new Error('RATE_LIMIT');
-      }
+      if (res.status === 429) continue;
 
       if (!res.ok) {
-        throw new Error(`Pollinations API 错误: ${res.status}`);
+        throw new Error(`HTTP ${res.status}`);
       }
 
       const buffer = await res.arrayBuffer();
-      if (buffer.byteLength < 100) {
-        throw new Error('生成失败：返回图片数据异常');
-      }
+      if (buffer.byteLength < 100) continue;
 
       const contentType = res.headers.get('content-type') || 'image/jpeg';
       const base64 = Buffer.from(buffer).toString('base64');
-      const dataUrl = `data:${contentType};base64,${base64}`;
-
-      return {
-        url: dataUrl,
-        seed,
-        cost: 0,
-        provider: 'pollinations',
-        retries: attempt,
-      };
-    } catch (error) {
-      lastError = error;
-      if (error.message === 'RATE_LIMIT' && attempt < MAX_RETRIES - 1) {
-        continue;
-      }
-      throw error;
+      return { url: `data:${contentType};base64,${base64}`, provider: 'pollinations' };
+    } catch (e) {
+      if (e.name === 'AbortError') continue;
+      throw e;
     }
   }
-  throw lastError || new Error('Max retries exceeded');
+  return null; // 降级
 }
 
 /**
- * 批量生成图像
+ * picsum 兜底图片
+ */
+function picsumFallback(seed, width, height) {
+  const url = `https://picsum.photos/seed/${seed}/${width}/${height}`;
+  console.log(`[PicSum] 降级兜底: ${url}`);
+  return { url, provider: 'picsum_fallback' };
+}
+
+/**
+ * 生成单张图像（自动降级，保证不失败）
+ */
+export async function generatePollinationsImage(prompt, options = {}) {
+  const width = options.width || 512;
+  const height = options.height || 512;
+  const seed = options.seed || Math.floor(Math.random() * 1000000);
+
+  const result = await tryPollinations(prompt, { ...options, width, height, seed });
+  if (result) return { ...result, seed, cost: 0 };
+
+  return { ...picsumFallback(seed, width, height), seed, cost: 0 };
+}
+
+/**
+ * 批量生成图像（自动降级，永不失败）
  */
 export async function batchGeneratePollinations(shots, options = {}, onProgress = null) {
   if (!shots || shots.length === 0) {
@@ -85,7 +90,7 @@ export async function batchGeneratePollinations(shots, options = {}, onProgress 
   }
 
   const total = shots.length;
-  console.log(`[Pollinations] 开始批量生成 ${total} 张图像（免费，模型: ${options.model || 'turbo'}）...`);
+  console.log(`[Pollinations] 批量生成 ${total} 张（限流失败自动降级 picsum）...`);
 
   const results = [];
   const errors = [];
@@ -94,43 +99,29 @@ export async function batchGeneratePollinations(shots, options = {}, onProgress 
     const shot = shots[i];
     const shotId = shot.shot_id || shot.shotId || `shot_${i + 1}`;
 
-    try {
-      console.log(`[Pollinations] 生成镜头 ${i + 1}/${total}: ${shotId}`);
-      const result = await generatePollinationsImage(shot.prompt, options);
+    console.log(`[Pollinations] ${i + 1}/${total}: ${shotId}`);
+    const result = await generatePollinationsImage(shot.prompt, options);
 
-      results.push({
-        shotId,
-        success: true,
-        url: result.url,
-        seed: result.seed,
-        provider: 'pollinations',
-        timestamp: new Date().toISOString(),
-      });
+    results.push({
+      shotId,
+      success: true,
+      url: result.url,
+      seed: result.seed,
+      provider: result.provider,
+      timestamp: new Date().toISOString(),
+    });
 
-      if (onProgress) onProgress(i + 1, total, shotId);
+    if (onProgress) onProgress(i + 1, total, shotId);
 
-      // 限流保护：每张图间隔 3 秒
-      if (i < total - 1) {
-        await sleep(3000);
-      }
-    } catch (error) {
-      console.error(`[Pollinations] 镜头 ${shotId} 生成失败:`, error.message);
-      errors.push({
-        shotId,
-        success: false,
-        error: error.message,
-        timestamp: new Date().toISOString(),
-      });
-      if (onProgress) onProgress(i + 1, total, shotId);
-
-      // 失败后也稍等一下再继续
-      if (i < total - 1) {
-        await sleep(2000);
-      }
+    if (i < total - 1) {
+      await sleep(2000);
     }
   }
 
-  console.log(`[Pollinations] 完成: 成功 ${results.length}, 失败 ${errors.length}`);
+  console.log(`[Pollinations] 完成: 成功 ${results.length}, 失败 ${errors.length}`
+    + ` (pollinations: ${results.filter(r => r.provider === 'pollinations').length},`
+    + ` picsum: ${results.filter(r => r.provider === 'picsum_fallback').length})`);
+
   return {
     results,
     errors,
