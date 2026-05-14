@@ -85,6 +85,7 @@ jobs:
           context: .
           push: false
           load: true
+          tags: comic-drama-platform:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Verify image structure
